@@ -156,7 +156,7 @@ class Backbone(nn.Module):
         #   输入图片是3, 640, 640
         #-----------------------------------------------#
         # 3, 640, 640 => 32, 640, 640 => 64, 320, 320
-        self.stem = Convbb(3, base_channels, 3, 2)
+        self.stem = Conv(3, base_channels, 3, 2)
         
         # 64, 320, 320 => 128, 160, 160 => 128, 160, 160
         self.dark2 = nn.Sequential(
