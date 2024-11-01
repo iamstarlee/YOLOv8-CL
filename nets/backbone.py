@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from .conv import qReLU
+import spikingjelly.activation_based.functional as spjfunctional
 
 
 def autopad(k, p=None, d=1):  
@@ -19,6 +21,7 @@ class SiLU(nn.Module):
     def forward(x):
         return x * torch.sigmoid(x)
     
+
 class Conv(nn.Module):
     # 标准卷积+标准化+激活函数
     default_act = SiLU() 
@@ -27,6 +30,22 @@ class Conv(nn.Module):
         self.conv   = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
         self.bn     = nn.BatchNorm2d(c2, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
         self.act    = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+    def forward_fuse(self, x):
+        return self.act(self.conv(x))
+
+    
+class Convbb(nn.Module):
+    # 标准卷积+标准化+激活函数
+    default_act = qReLU() 
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
+        super().__init__()
+        self.conv   = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
+        self.bn     = nn.BatchNorm2d(c2, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        self.act    = self.default_act
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
@@ -47,6 +66,23 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))    
 
+
+class Bottleneckbb(nn.Module):
+    # 标准瓶颈结构，残差结构
+    # c1为输入通道数，c2为输出通道数
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Convbb(c1, c_, k[0], 1)
+        self.cv2 = Convbb(c_, c2, k[1], 1, g=g)
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))    
+
+
+
+
 class C2f(nn.Module):
     # CSPNet结构结构，大残差结构
     # c1为输入通道数，c2为输出通道数
@@ -56,6 +92,23 @@ class C2f(nn.Module):
         self.cv1    = Conv(c1, 2 * self.c, 1, 1)
         self.cv2    = Conv((2 + n) * self.c, c2, 1)
         self.m      = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+    def forward(self, x):
+        # 进行一个卷积，然后划分成两份，每个通道都为c
+        y = list(self.cv1(x).split((self.c, self.c), 1))
+        # 每进行一次残差结构都保留，然后堆叠在一起，密集残差
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+    
+class C2fbb(nn.Module):
+    # CSPNet结构结构，大残差结构
+    # c1为输入通道数，c2为输出通道数
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__()
+        self.c      = int(c2 * e) 
+        self.cv1    = Convbb(c1, 2 * self.c, 1, 1)
+        self.cv2    = Convbb((2 + n) * self.c, c2, 1)
+        self.m      = nn.ModuleList(Bottleneckbb(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
 
     def forward(self, x):
         # 进行一个卷积，然后划分成两份，每个通道都为c
@@ -78,6 +131,23 @@ class SPPF(nn.Module):
         y1 = self.m(x)
         y2 = self.m(y1)
         return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+    
+
+class SPPFbb(nn.Module):
+    # SPP结构，5、9、13最大池化核的最大池化。
+    def __init__(self, c1, c2, k=5):
+        super().__init__()
+        c_          = c1 // 2
+        self.cv1    = Convbb(c1, c_, 1, 1)
+        self.cv2    = Convbb(c_ * 4, c2, 1, 1)
+        self.m      = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+
+    def forward(self, x):
+        x = self.cv1(x)
+        y1 = self.m(x)
+        y2 = self.m(y1)
+        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+
 
 class Backbone(nn.Module):
     def __init__(self, base_channels, base_depth, deep_mul, phi, pretrained=False):
@@ -86,29 +156,31 @@ class Backbone(nn.Module):
         #   输入图片是3, 640, 640
         #-----------------------------------------------#
         # 3, 640, 640 => 32, 640, 640 => 64, 320, 320
-        self.stem = Conv(3, base_channels, 3, 2)
+        self.stem = Convbb(3, base_channels, 3, 2)
         
         # 64, 320, 320 => 128, 160, 160 => 128, 160, 160
         self.dark2 = nn.Sequential(
-            Conv(base_channels, base_channels * 2, 3, 2),
-            C2f(base_channels * 2, base_channels * 2, base_depth, True),
+            Convbb(base_channels, base_channels * 2, 3, 2),
+            C2fbb(base_channels * 2, base_channels * 2, base_depth, True),
         )
         # 128, 160, 160 => 256, 80, 80 => 256, 80, 80
         self.dark3 = nn.Sequential(
-            Conv(base_channels * 2, base_channels * 4, 3, 2),
-            C2f(base_channels * 4, base_channels * 4, base_depth * 2, True),
+            Convbb(base_channels * 2, base_channels * 4, 3, 2),
+            C2fbb(base_channels * 4, base_channels * 4, base_depth * 2, True),
         )
         # 256, 80, 80 => 512, 40, 40 => 512, 40, 40
         self.dark4 = nn.Sequential(
-            Conv(base_channels * 4, base_channels * 8, 3, 2),
-            C2f(base_channels * 8, base_channels * 8, base_depth * 2, True),
+            Convbb(base_channels * 4, base_channels * 8, 3, 2),
+            C2fbb(base_channels * 8, base_channels * 8, base_depth * 2, True),
         )
         # 512, 40, 40 => 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 20, 20
         self.dark5 = nn.Sequential(
-            Conv(base_channels * 8, int(base_channels * 16 * deep_mul), 3, 2),
-            C2f(int(base_channels * 16 * deep_mul), int(base_channels * 16 * deep_mul), base_depth, True),
-            SPPF(int(base_channels * 16 * deep_mul), int(base_channels * 16 * deep_mul), k=5)
+            Convbb(base_channels * 8, int(base_channels * 16 * deep_mul), 3, 2),
+            C2fbb(int(base_channels * 16 * deep_mul), int(base_channels * 16 * deep_mul), base_depth, True),
+            SPPFbb(int(base_channels * 16 * deep_mul), int(base_channels * 16 * deep_mul), k=5)
         )
+
+        self.spiking_mode = False
         
         if pretrained:
             url = {
@@ -122,7 +194,7 @@ class Backbone(nn.Module):
             self.load_state_dict(checkpoint, strict=False)
             print("Load weights from " + url.split('/')[-1])
 
-    def forward(self, x):
+    def forward_ori(self, x):
         x = self.stem(x)
         x = self.dark2(x)
         #-----------------------------------------------#
@@ -141,3 +213,52 @@ class Backbone(nn.Module):
         x = self.dark5(x)
         feat3 = x
         return feat1, feat2, feat3
+
+
+    def forward(self, x):
+        if not self.spiking_mode:
+            return self.forward_ori(x)
+
+        outputs = []
+        T = 48  # 迭代次数
+
+        for t in range(T):
+            x_temp = self.stem(x)
+            x_temp = self.dark2(x_temp)
+
+            #-----------------------------------------------#
+            #   dark3的输出为256, 80, 80，是一个有效特征层
+            #-----------------------------------------------#
+            x_temp = self.dark3(x_temp)
+            feat1 = x_temp
+
+            #-----------------------------------------------#
+            #   dark4的输出为512, 40, 40，是一个有效特征层
+            #-----------------------------------------------#
+            x_temp = self.dark4(x_temp)
+            feat2 = x_temp
+
+            #-----------------------------------------------#
+            #   dark5的输出为1024 * deep_mul, 20, 20，是一个有效特征层
+            #-----------------------------------------------#
+            x_temp = self.dark5(x_temp)
+            feat3 = x_temp
+
+            outputs.append((feat1, feat2, feat3))  # 将每次迭代的特征层添加到输出列表中
+
+            spjfunctional.reset_net(self.stem)
+            spjfunctional.reset_net(self.dark2)
+            spjfunctional.reset_net(self.dark3)
+            spjfunctional.reset_net(self.dark4)
+            spjfunctional.reset_net(self.dark5)
+
+
+
+        # 计算所有迭代的平均值
+        feat1 = torch.mean(torch.stack([o[0] for o in outputs]), dim=0)
+        feat2 = torch.mean(torch.stack([o[1] for o in outputs]), dim=0)
+        feat3 = torch.mean(torch.stack([o[2] for o in outputs]), dim=0)
+        # print(feat1)
+
+        return feat1, feat2, feat3
+

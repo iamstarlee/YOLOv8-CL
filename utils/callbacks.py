@@ -175,7 +175,7 @@ class EvalCallback():
                 os.makedirs(os.path.join(self.map_out_path, "ground-truth"))
             if not os.path.exists(os.path.join(self.map_out_path, "detection-results")):
                 os.makedirs(os.path.join(self.map_out_path, "detection-results"))
-            print("Get map.")
+            print("Getting mAP.")
             for annotation_line in tqdm(self.val_lines):
                 line        = annotation_line.split()
                 image_id    = os.path.basename(line[0]).split('.')[0]

@@ -47,10 +47,13 @@ class DFL(nn.Module):
         # 以softmax的方式，对0~16的数字计算百分比，获得最终数字。
         return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
         # return self.conv(x.view(b, self.c1, 4, a).softmax(1)).view(b, 4, a)
-
-class Head(nn.Module):
-    def __init__(self, num_classes, phi, pretrained=False):
-        super(Head, self).__init__()
+        
+#---------------------------------------------------#
+#   yolo_body
+#---------------------------------------------------#
+class YoloBody(nn.Module):
+    def __init__(self, input_shape, num_classes, phi, pretrained=False):
+        super(YoloBody, self).__init__()
         depth_dict          = {'n' : 0.33, 's' : 0.33, 'm' : 0.67, 'l' : 1.00, 'x' : 1.00,}
         width_dict          = {'n' : 0.25, 's' : 0.50, 'm' : 0.75, 'l' : 1.00, 'x' : 1.25,}
         deep_width_dict     = {'n' : 1.00, 's' : 1.00, 'm' : 0.75, 'l' : 0.50, 'x' : 0.50,}
@@ -58,6 +61,19 @@ class Head(nn.Module):
 
         base_channels       = int(wid_mul * 64)  # 64
         base_depth          = max(round(dep_mul * 3), 1)  # 3
+        #-----------------------------------------------#
+        #   输入图片是3, 640, 640
+        #-----------------------------------------------#
+
+        #---------------------------------------------------#   
+        #   生成主干模型
+        #   获得三个有效特征层，他们的shape分别是：
+        #   256, 80, 80
+        #   512, 40, 40
+        #   1024 * deep_mul, 20, 20
+        #---------------------------------------------------#
+        self.backbone   = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
+
         #------------------------加强特征提取网络------------------------# 
         self.upsample   = nn.Upsample(scale_factor=2, mode="nearest")
 
@@ -80,8 +96,8 @@ class Head(nn.Module):
         ch              = [base_channels * 4, base_channels * 8, int(base_channels * 16 * deep_mul)]
         self.shape      = None
         self.nl         = len(ch)
-        self.stride     = torch.zeros(self.nl)
-        # self.stride     = torch.tensor([256 / x.shape[-2] for x in self.backbone.forward(torch.zeros(1, 3, 256, 256))])  # forward
+        # self.stride     = torch.zeros(self.nl)
+        self.stride     = torch.tensor([256 / x.shape[-2] for x in self.backbone.forward(torch.zeros(1, 3, 256, 256))])  # forward
         self.reg_max    = 16  # DFL channels (ch[0] // 16 to scale 4/8/12/16/20 for n/s/m/l/x)
         self.no         = num_classes + self.reg_max * 4  # number of outputs per anchor
         self.num_classes = num_classes
@@ -93,7 +109,26 @@ class Head(nn.Module):
             weights_init(self)
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 
-    def forward(self, feat1, feat2, feat3):
+        self.training_head = False
+
+    def fuse(self):
+        print('Fusing layers... ')
+        for m in self.modules():
+            if type(m) is Conv and hasattr(m, 'bn'):
+                m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
+                delattr(m, 'bn')  # remove batchnorm
+                m.forward = m.forward_fuse  # update forward
+        return self
+    
+    def forward(self, x):
+        #  backbone
+        if self.training_head:
+            feat1 = x[0]
+            feat2 = x[1]
+            feat3 = x[2]
+        else:
+            feat1, feat2, feat3 = self.backbone.forward(x)
+        
         #------------------------加强特征提取网络------------------------# 
         # 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
         P5_upsample = self.upsample(feat3)
@@ -145,47 +180,3 @@ class Head(nn.Module):
         # origin_cls      = [xi.split((self.reg_max * 4, self.num_classes), 1)[1] for xi in x]
         dbox            = self.dfl(box)
         return dbox, cls, x, self.anchors.to(dbox.device), self.strides.to(dbox.device)
-
-
-
-#---------------------------------------------------#
-#   yolo_body
-#---------------------------------------------------#
-class YoloBody(nn.Module):
-    def __init__(self, input_shape, num_classes, phi, pretrained=True):
-        super(YoloBody, self).__init__()
-        depth_dict          = {'n' : 0.33, 's' : 0.33, 'm' : 0.67, 'l' : 1.00, 'x' : 1.00,}
-        width_dict          = {'n' : 0.25, 's' : 0.50, 'm' : 0.75, 'l' : 1.00, 'x' : 1.25,}
-        deep_width_dict     = {'n' : 1.00, 's' : 1.00, 'm' : 0.75, 'l' : 0.50, 'x' : 0.50,}
-        dep_mul, wid_mul, deep_mul = depth_dict[phi], width_dict[phi], deep_width_dict[phi]
-
-        base_channels       = int(wid_mul * 64)  # 64
-        base_depth          = max(round(dep_mul * 3), 1)  # 3
-        #-----------------------------------------------#
-        #   输入图片是3, 640, 640
-        #-----------------------------------------------#
-
-        #---------------------------------------------------#   
-        #   生成主干模型
-        #   获得三个有效特征层，他们的shape分别是：
-        #   256, 80, 80
-        #   512, 40, 40
-        #   1024 * deep_mul, 20, 20
-        #---------------------------------------------------#
-        self.backbone   = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
-        self.head = Head(num_classes, phi, pretrained=pretrained)
-
-    def fuse(self):
-        print('Fusing layers... ')
-        for m in self.modules():
-            if type(m) is Conv and hasattr(m, 'bn'):
-                m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
-                delattr(m, 'bn')  # remove batchnorm
-                m.forward = m.forward_fuse  # update forward
-        return self
-    
-    def forward(self, x):
-        #  backbone
-        feat1, feat2, feat3 = self.backbone.forward(x)
-        dbox, cls, xx, anchors, strides = self.head.forward(feat1, feat2, feat3)
-        return dbox, cls, xx, anchors, strides
