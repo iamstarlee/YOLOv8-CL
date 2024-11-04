@@ -246,11 +246,11 @@ class Backbone(nn.Module):
 
             outputs.append((feat1, feat2, feat3))  # 将每次迭代的特征层添加到输出列表中
 
-            spjfunctional.reset_net(self.stem)
-            spjfunctional.reset_net(self.dark2)
-            spjfunctional.reset_net(self.dark3)
-            spjfunctional.reset_net(self.dark4)
-            spjfunctional.reset_net(self.dark5)
+        spjfunctional.reset_net(self.stem)
+        spjfunctional.reset_net(self.dark2)
+        spjfunctional.reset_net(self.dark3)
+        spjfunctional.reset_net(self.dark4)
+        spjfunctional.reset_net(self.dark5)
 
 
 

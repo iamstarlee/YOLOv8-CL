@@ -66,7 +66,7 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
     h5_file3.close()
 
     # 写入 JSON 文件
-    with open(os.path.join(target_dir, 'train_bboxes.json'), 'w') as json_file:
+    with open(os.path.join(target_dir, 'val_bboxes.json'), 'w') as json_file:
         json.dump(bbox_data, json_file)
 
     print('特征和边界框已成功保存。')
@@ -159,4 +159,4 @@ if __name__ == "__main__":
                                         mosaic=mosaic, mixup=mixup, mosaic_prob=mosaic_prob, mixup_prob=mixup_prob, train=False, special_aug_ratio=special_aug_ratio)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, collate_fn=yolo_dataset_collate)
 
-    save_backbone_outputs(Backbone, dataloader_train, class_names, target_class_names, input_shape, save_train_path1, save_train_path2, save_train_path3, target_dir)
+    save_backbone_outputs(Backbone, dataloader_val, class_names, target_class_names, input_shape, save_val_path1, save_val_path2, save_val_path3, target_dir)
