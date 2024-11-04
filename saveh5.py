@@ -56,8 +56,14 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
                 h5_file2.create_dataset(img_id, data=img_feature2)
                 h5_file3.create_dataset(img_id, data=img_feature3)
 
-                # 保存所有边界框
-                filtered_bboxes = [bbox.tolist() for bbox in img_bboxes if len(bbox) == 6 and bbox[1] in target_class_indices]
+                # 保存所有边界框。稍作修改，将类别id转为int
+                filtered_bboxes = []
+                for bbox in img_bboxes:
+                    if(len(bbox) == 6):
+                        t_bbox = bbox.tolist()
+                        t_bbox[1] = int(t_bbox[1])
+                        filtered_bboxes.append(t_bbox)
+
                 bbox_id = f'image_{iteration}'  # 生成唯一的图像 ID
                 bbox_data[bbox_id] = filtered_bboxes
 
@@ -66,7 +72,7 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
     h5_file3.close()
 
     # 写入 JSON 文件
-    with open(os.path.join(target_dir, 'val_bboxes.json'), 'w') as json_file:
+    with open(os.path.join(target_dir, 'train_bboxes.json'), 'w') as json_file:
         json.dump(bbox_data, json_file)
 
     print('特征和边界框已成功保存。')
@@ -114,6 +120,25 @@ def load_data_with_specific_classes(train_annotation_path, val_annotation_path, 
     return train_lines, val_lines, num_train, num_val
 
 
+def test(model, dataloader):
+    with torch.no_grad():
+        for iteration, batch in enumerate(tqdm(dataloader, desc="Saving intermediate results")):
+            images, bboxes = batch  # 解包 batch
+            images = images.cuda()
+            
+            # 处理当前图像的所有边界框
+            img_bboxes = bboxes  # 当前批次的边界框
+            contains_target_class = False
+            print(f"bboxes are {bboxes}")
+            # 检查当前图像的 bboxes 是否包含目标类别
+            for bbox in img_bboxes:  # 遍历当前图像的所有边界框
+                
+                bbox = bbox.tolist()  # 将 tensor 转换为 list
+                if len(bbox) == 6:  # 确保 bbox 有正确的元素数量
+                    _, class_id, _, _, _, _ = bbox  # 只提取类别 ID
+                    print(f"class_id is {class_id}")
+
+
 if __name__ == "__main__":
     classes_path = 'model_data/voc_classes.txt'
     train_annotation_path = '2007_train.txt'
@@ -159,4 +184,5 @@ if __name__ == "__main__":
                                         mosaic=mosaic, mixup=mixup, mosaic_prob=mosaic_prob, mixup_prob=mixup_prob, train=False, special_aug_ratio=special_aug_ratio)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, collate_fn=yolo_dataset_collate)
 
-    save_backbone_outputs(Backbone, dataloader_val, class_names, target_class_names, input_shape, save_val_path1, save_val_path2, save_val_path3, target_dir)
+    save_backbone_outputs(Backbone, dataloader_train, class_names, target_class_names, input_shape, save_train_path1, save_train_path2, save_train_path3, target_dir)
+    # test(Backbone, dataloader_val)

@@ -9,6 +9,7 @@ from nets.yolo_training import Loss, ModelEMA
 import torch.optim as optim
 from utils.utils import get_classes
 from nets.yolo import YoloBody
+from nets.yolo_training import set_optimizer_lr, get_lr_scheduler
 import os
 from utils.utils import get_lr
 from utils.callbacks import EvalCallback, LossHistory
@@ -66,7 +67,7 @@ def count_json_lines(file_path):
 
 if __name__ == '__main__':
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    epochs           = 100
+    epochs           = 30
     cuda             = True
     batch_size       = 32
     Init_lr          = 1e-2
@@ -74,12 +75,15 @@ if __name__ == '__main__':
     lr_limit_max     = 5e-2
     lr_limit_min     = 5e-4
     momentum         = 0.937
+    weight_decay     = 5e-4
     input_shape      = [640, 640]
     phi              = 'l'
     classes_path     = './model_data/voc_classes.txt'
     class_names, num_classes = get_classes(classes_path)
     pretrained       = False
     save_dir         = 'SNN_logs'
+    weight_path      = os.path.join("./logs/best_epoch_weights.pth")
+    lr_decay_type    = "cos"
     class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
     target_classes   = get_target_classes(classes_path, class_names)
     train_annotation_path   = './2007_train.txt'
@@ -90,16 +94,19 @@ if __name__ == '__main__':
     save_period      = 10
 
 
+    # Here, num_classes = 4
+    model = YoloBody(input_shape, num_classes=num_classes, phi='l', pretrained=pretrained)
 
-    model = YoloBody(input_shape, num_classes=2, phi='l', pretrained=pretrained)
+    # Load backbone param
+    state_dict = torch.load(weight_path, map_location='cuda')
+    backbone_weights = {k: v for k, v in state_dict.items() if k.startswith("backbone")}
+    model.load_state_dict(backbone_weights, strict=False)
+    
 
+    # Freeze backbone
     for param in model.backbone.parameters():
-            param.requires_grad = False
-
-
-    weight_path = os.path.join("./logs/best_epoch_weights.pth")
-    model.load_state_dict(torch.load(weight_path, map_location='cuda'))
-
+        param.requires_grad = False
+    
     # Create dataset and dataloader
     dataset_train = Dataset_Head('targets/train_backbone_outputs1.h5', 
                                  'targets/train_backbone_outputs2.h5',
@@ -118,7 +125,7 @@ if __name__ == '__main__':
     log_dir         = os.path.join(save_dir, "loss_" + str(time_str))
     loss_history    = LossHistory(log_dir, model, input_shape=input_shape)
     eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, True, \
-                                        eval_flag=True, period=5) # period 是多少轮后开始评估模型
+                                        eval_flag=True, period=2) # period 是多少轮后开始评估模型
     
 
     pg0, pg1, pg2 = [], [], []
@@ -131,7 +138,15 @@ if __name__ == '__main__':
         elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
             pg1.append(v.weight)   
     Init_lr_fit     = min(max(batch_size / nbs * Init_lr, lr_limit_min), lr_limit_max)
+    Min_lr_fit      = min(max(batch_size / nbs * Min_lr, lr_limit_min * 1e-2), lr_limit_max * 1e-2)
+
     optimizer = optim.SGD(pg0, Init_lr_fit, momentum = momentum, nesterov=True)
+    # 获得学习率下降的公式
+    lr_scheduler_func = get_lr_scheduler(lr_decay_type, Init_lr_fit, Min_lr_fit, epochs)
+
+    # add_param_group() 用来冻结参数
+    optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
+    optimizer.add_param_group({"params": pg2})
 
     model_train = model.train()
     model_train = model_train.cuda()
@@ -139,10 +154,11 @@ if __name__ == '__main__':
     ema = ModelEMA(model_train)
     
 
-    # 开始训练 Head
+    # Here we go!
     for epoch in range(epochs):
         loss             = 0.0 
         val_loss         = 0.0
+        set_optimizer_lr(optimizer, lr_scheduler_func, epoch)
         print('Start Train')
         iteration = 0
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
@@ -167,8 +183,7 @@ if __name__ == '__main__':
 
             loss += loss_value.item()
             
-            pbar.set_postfix(**{'loss'  : loss / (iteration + 1), 
-                                'lr'    : get_lr(optimizer)})
+            pbar.set_postfix(**{'loss'  : loss / (iteration + 1), 'lr'    : get_lr(optimizer)})
             pbar.update(1)
             
         pbar.close()
