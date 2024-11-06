@@ -80,7 +80,6 @@ class YoloDataset(Dataset):
             #---------------------------------------------------#
             labels_out[:, 1] = box[:, -1]
             labels_out[:, 2:] = box[:, :4]
-            
         return image, labels_out
 
     def rand(self, a=0, b=1):
@@ -401,6 +400,25 @@ def yolo_dataset_collate(batch):
     images  = torch.from_numpy(np.array(images)).type(torch.FloatTensor)
     bboxes  = torch.from_numpy(np.concatenate(bboxes, 0)).type(torch.FloatTensor)
     return images, bboxes
+
+# features DataLoader中collate_fn使用
+def feats_dataset_collate(batch):
+    feats1  = []
+    feats2  = []
+    feats3  = []
+    labels  = []
+    for i, (feat1, feat2, feat3, label) in enumerate(batch):
+        feats1.append(feat1)
+        feats2.append(feat2)
+        feats3.append(feat3)
+        label[:, 0] = i
+        labels.append(label)
+    feats1 = torch.from_numpy(np.array(feats1)).type(torch.FloatTensor)
+    feats2 = torch.from_numpy(np.array(feats2)).type(torch.FloatTensor)
+    feats3 = torch.from_numpy(np.array(feats3)).type(torch.FloatTensor)
+    labels  = torch.from_numpy(np.concatenate(labels, 0)).type(torch.FloatTensor)
+
+    return feats1, feats2, feats3, labels
 
 # # DataLoader中collate_fn使用
 # def yolo_dataset_collate(batch):

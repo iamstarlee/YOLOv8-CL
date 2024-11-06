@@ -3,6 +3,7 @@ import json
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+from utils.dataloader import feats_dataset_collate
 from torchvision.transforms import functional as F
 from tqdm import tqdm
 from nets.yolo_training import Loss, ModelEMA
@@ -16,6 +17,8 @@ from utils.callbacks import EvalCallback, LossHistory
 import datetime
 from get_the_classes import get_target_classes, load_data_with_specific_classes
 import numpy as np
+from functools import partial
+from utils.utils import worker_init_fn
 
 
 class Dataset_Head(Dataset):
@@ -43,23 +46,34 @@ class Dataset_Head(Dataset):
         feat1 = self.h5_file1[image_id][:]
         feat2 = self.h5_file2[image_id][:]
         feat3 = self.h5_file3[image_id][:]
-        feat1 = torch.tensor(feat1, dtype=torch.float32)
-        feat2 = torch.tensor(feat2, dtype=torch.float32)
-        feat3 = torch.tensor(feat3, dtype=torch.float32)
-        
+        # feat1 = torch.tensor(feat1, dtype=torch.float32)
+        # feat2 = torch.tensor(feat2, dtype=torch.float32)
+        # feat3 = torch.tensor(feat3, dtype=torch.float32)
+        feat1 = np.array(feat1, dtype=np.float32)
+        feat2 = np.array(feat2, dtype=np.float32)
+        feat3 = np.array(feat3, dtype=np.float32)
 
-        boxes = self.annotations[image_id][0][-4:] # 最后四个值为坐标值
-        labels = self.annotations[image_id][0][1] # 第二个值为类别值
         
-        boxes = torch.tensor(boxes, dtype=torch.float32)
-        labels = torch.tensor(labels, dtype=torch.int64)
+        # 需要将boxes转换为YoloDataset中的格式
+        len_ann = len(self.annotations[image_id])
+        # labels_out = torch.zeros((len_ann, 6))
+        labels_out = np.zeros((len_ann, 6))
+        for i in range(len_ann):
+            boxes = self.annotations[image_id][i][-4:] # 最后四个值为坐标值
+            labels = self.annotations[image_id][i][1] # 第二个值为类别值
+            # boxes = torch.tensor(boxes, dtype=torch.float32)
+            # labels = torch.tensor(labels, dtype=torch.int64)
+            boxes  = np.array(boxes, dtype=np.float32)
+            labels = np.array(labels, dtype=np.int64)
+            labels_out[i][1] = labels
+            labels_out[i][2:] = boxes
 
         if self.transform:
             feat1 = self.transform(feat1)
             feat2 = self.transform(feat2)
             feat3 = self.transform(feat3)
 
-        return feat1, feat2, feat3, boxes, labels
+        return feat1, feat2, feat3, labels_out
 
 def count_json_lines(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -68,7 +82,7 @@ def count_json_lines(file_path):
 
 if __name__ == '__main__':
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    epochs           = 30
+    epochs           = 300
     cuda             = True
     batch_size       = 32
     Init_lr          = 1e-2
@@ -93,7 +107,7 @@ if __name__ == '__main__':
     train_lines, val_lines, num_train, num_val = load_data_with_specific_classes(train_annotation_path, val_annotation_path, target_classes)
     epoch_step       = num_train // batch_size
     epoch_step_val   = num_val // batch_size
-    save_period      = 10
+    save_period      = 15
 
 
     # Here, num_classes = 4
@@ -129,12 +143,16 @@ if __name__ == '__main__':
                                  'targets/train_backbone_outputs2.h5',
                                  'targets/train_backbone_outputs3.h5', 
                                  'targets/train_bboxes.json')
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, pin_memory=True,
+                                drop_last=True, collate_fn=feats_dataset_collate, sampler=None, 
+                                worker_init_fn=partial(worker_init_fn, rank=0, seed=42))
     dataset_val = Dataset_Head('targets/val_backbone_outputs1.h5', 
                                'targets/val_backbone_outputs2.h5', 
                                'targets/val_backbone_outputs3.h5', 
                                'targets/val_bboxes.json')
-    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True)
+    dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=True, pin_memory=True, 
+                                drop_last=True, collate_fn=feats_dataset_collate, sampler=None, 
+                                worker_init_fn=partial(worker_init_fn, rank=0, seed=42))
     
     yolo_loss = Loss(model)
 
@@ -142,7 +160,7 @@ if __name__ == '__main__':
     log_dir         = os.path.join(save_dir, "loss_" + str(time_str))
     loss_history    = LossHistory(log_dir, model, input_shape=input_shape)
     eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, True, \
-                                        eval_flag=True, period=2) # period 是多少轮后开始评估模型
+                                        eval_flag=True, period=15) # period 是多少轮后开始评估模型
     
 
     pg0, pg1, pg2 = [], [], []
@@ -177,26 +195,26 @@ if __name__ == '__main__':
         val_loss         = 0.0
         set_optimizer_lr(optimizer, lr_scheduler_func, epoch)
         print('Start Train')
-        iteration = 0
+        
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
         
-        for feat1, feat2, feat3, bboxes, labels in dataloader_train:
+        for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_train):
             optimizer.zero_grad()
             if cuda:
                 feat1 = feat1.cuda()
                 feat2 = feat2.cuda()
                 feat3 = feat3.cuda()
-                bboxes = bboxes.cuda()
+                labels = labels.cuda()
   
             outputs = model_train((feat1, feat2, feat3))
 
-            loss_value = yolo_loss(outputs, bboxes)
+            loss_value = yolo_loss(outputs, labels)
 
             loss_value.backward()
             torch.nn.utils.clip_grad_norm_(model_train.parameters(), max_norm=10.0)  # clip gradients
             optimizer.step()
             
-            ema.update(model_train)
+            # ema.update(model_train)
 
             loss += loss_value.item()
             
@@ -208,14 +226,15 @@ if __name__ == '__main__':
         print('Start Validation')
         pbar = tqdm(total=epoch_step_val, desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
 
-        model_eval = ema.ema # Evaluations that use moving averaged parameters
-        for feat1, feat2, feat3, bboxes, labels in dataloader_val:
+        # model_eval = ema.ema # Evaluations that use moving averaged parameters
+        model_eval = model_train.eval()
+        for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_val):
             with torch.no_grad():
                 if cuda:
                     feat1 = feat1.cuda()
                     feat2 = feat2.cuda()
                     feat3 = feat3.cuda()
-                    bboxes = bboxes.cuda()
+                    labels = labels.cuda()
                 #----------------------#
                 #   清零梯度
                 #----------------------#
@@ -224,12 +243,11 @@ if __name__ == '__main__':
                 #   前向传播
                 #----------------------#
                 outputs     = model_eval((feat1, feat2, feat3))
-                loss_value  = yolo_loss(outputs, bboxes)
+                loss_value  = yolo_loss(outputs, labels)
 
             val_loss += loss_value.item()
             pbar.set_postfix(**{'val_loss': val_loss / (iteration + 1)})
             pbar.update(1)
-            iteration = iteration + 1
 
         # 保存权重
         pbar.close()
@@ -237,7 +255,8 @@ if __name__ == '__main__':
         model_eval.training_head = False # 下面计算mAP需要走YoloBody forward的另一个分支
         loss_history.append_loss(epoch + 1, loss / epoch_step, val_loss / epoch_step_val)
         eval_callback.on_epoch_end(epoch + 1, model_eval)
-        save_state_dict = ema.ema.state_dict()
+        # save_state_dict = ema.ema.state_dict()
+        save_state_dict = model.state_dict()
         model_eval.training_head = True
 
         if (epoch + 1) % save_period == 0 or epoch + 1 == epochs:

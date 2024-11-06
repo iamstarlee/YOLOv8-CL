@@ -235,7 +235,7 @@ if __name__ == "__main__":
     #   （二）此处设置评估参数较为保守，目的是加快评估速度。
     #------------------------------------------------------------------#
     eval_flag           = True
-    eval_period         = 15
+    eval_period         = 2
     #------------------------------------------------------------------#
     #   num_workers     用于设置是否使用多线程读取数据
     #                   开启后会加快数据读取速度，但是会占用更多内存
@@ -378,7 +378,6 @@ if __name__ == "__main__":
     #---------------------------#
 
     
-    class_names = ['aeroplane', 'bicycle', 'bird', 'boat']
     target_classes = get_target_classes(classes_path, class_names)
     train_lines, val_lines, num_train, num_val = load_data_with_specific_classes(train_annotation_path, val_annotation_path, target_classes)
 
@@ -476,9 +475,9 @@ if __name__ == "__main__":
         #---------------------------------------#
         #   构建数据集加载器。
         #---------------------------------------#
-        train_dataset   = YoloDataset(train_lines, input_shape, num_classes, epoch_length=UnFreeze_Epoch, \
+        train_dataset   = YoloDataset(train_lines, input_shape, num_classes=num_classes, epoch_length=UnFreeze_Epoch, \
                                         mosaic=mosaic, mixup=mixup, mosaic_prob=mosaic_prob, mixup_prob=mixup_prob, train=True, special_aug_ratio=special_aug_ratio)
-        val_dataset     = YoloDataset(val_lines, input_shape, num_classes, epoch_length=UnFreeze_Epoch, \
+        val_dataset     = YoloDataset(val_lines, input_shape, num_classes=num_classes, epoch_length=UnFreeze_Epoch, \
                                         mosaic=False, mixup=False, mosaic_prob=0, mixup_prob=0, train=False, special_aug_ratio=0)
         
         if distributed:
