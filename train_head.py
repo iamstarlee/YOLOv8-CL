@@ -15,6 +15,7 @@ from utils.utils import get_lr
 from utils.callbacks import EvalCallback, LossHistory
 import datetime
 from get_the_classes import get_target_classes, load_data_with_specific_classes
+import numpy as np
 
 
 class Dataset_Head(Dataset):
@@ -84,7 +85,8 @@ if __name__ == '__main__':
     save_dir         = 'SNN_logs'
     weight_path      = os.path.join("./logs/best_epoch_weights.pth")
     lr_decay_type    = "cos"
-    class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
+    # class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
+    class_names      = ['aeroplane', 'bicycle']
     target_classes   = get_target_classes(classes_path, class_names)
     train_annotation_path   = './2007_train.txt'
     val_annotation_path     = './2007_val.txt'
@@ -98,10 +100,25 @@ if __name__ == '__main__':
     model = YoloBody(input_shape, num_classes=num_classes, phi='l', pretrained=pretrained)
 
     # Load backbone param
-    state_dict = torch.load(weight_path, map_location='cuda')
-    backbone_weights = {k: v for k, v in state_dict.items() if k.startswith("backbone")}
-    model.load_state_dict(backbone_weights, strict=False)
+    model_dict      = model.state_dict()
     
+    pretrained_dict = torch.load(weight_path, map_location='cuda')
+    backbone_weights = {k: v for k, v in pretrained_dict.items() if k.startswith("backbone")}
+    except_dfl = {k : v for k, v in pretrained_dict.items() if 'dfl' not in k}
+    
+    load_key, no_load_key, temp_dict = [], [], {}
+    for k, v in backbone_weights.items():
+        if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
+            temp_dict[k] = v
+            load_key.append(k)
+        else:
+            no_load_key.append(k)
+    model_dict.update(temp_dict)
+    model.load_state_dict(model_dict)
+    print("\nSuccessful Load Key:", str(load_key)[:500], "……\nSuccessful Load Key Num:", len(load_key))
+    print("\nFail To Load Key:", str(no_load_key)[:500], "……\nFail To Load Key num:", len(no_load_key))
+    print("\n\033[1;33;44m温馨提示，head部分没有载入是正常现象，Backbone部分没有载入是错误的。\033[0m")
+
 
     # Freeze backbone
     for param in model.backbone.parameters():
@@ -170,7 +187,7 @@ if __name__ == '__main__':
                 feat2 = feat2.cuda()
                 feat3 = feat3.cuda()
                 bboxes = bboxes.cuda()
-            
+  
             outputs = model_train((feat1, feat2, feat3))
 
             loss_value = yolo_loss(outputs, bboxes)

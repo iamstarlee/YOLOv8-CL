@@ -89,7 +89,9 @@ if __name__ == "__main__":
                 continue
             else:
                 r_image = yolo.detect_image(image, crop = crop, count=count)
-                r_image.show()
+                r_image.save('saved.png')
+                print(f"Saved succeed!")
+                # r_image.show()
 
     elif mode == "video":
         capture = cv2.VideoCapture(video_path)

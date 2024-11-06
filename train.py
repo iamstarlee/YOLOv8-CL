@@ -61,7 +61,7 @@ if __name__ == "__main__":
     #       设置            distributed = True
     #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py
     #---------------------------------------------------------------------#
-    distributed     = True
+    distributed     = False
     #---------------------------------------------------------------------#
     #   sync_bn     是否使用sync_bn，DDP模式多卡可用
     #---------------------------------------------------------------------#
@@ -95,8 +95,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    # model_path      = 'model_data/yolov8_l.pth'
-    model_path      = ''
+    model_path      = 'weights/yolov8_l_backbone_weights.pth'
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -175,7 +174,7 @@ if __name__ == "__main__":
     #                       (当Freeze_Train=False时失效)
     #------------------------------------------------------------------#
     Init_Epoch          = 0
-    Freeze_Epoch        = 5
+    Freeze_Epoch        = 10
     Freeze_batch_size   = 32
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
@@ -192,7 +191,7 @@ if __name__ == "__main__":
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
     #------------------------------------------------------------------#
-    Freeze_Train        = False
+    Freeze_Train        = True
 
     #------------------------------------------------------------------#
     #   其它训练参数：学习率、优化器、学习率下降有关
@@ -225,7 +224,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     #   save_dir        权值与日志文件保存的文件夹
     #------------------------------------------------------------------#
-    save_dir            = 'logs'
+    save_dir            = 'SNN_logs'
     #------------------------------------------------------------------#
     #   eval_flag       是否在训练时进行评估，评估对象为验证集
     #                   安装pycocotools库后，评估体验更佳。
@@ -273,10 +272,6 @@ if __name__ == "__main__":
     #   获取classes和anchor
     #------------------------------------------------------#
     class_names, num_classes = get_classes(classes_path)
-    print(class_names)
-    print(num_classes)
-    # class_names = ['sofa', 'train']
-    # num_classes = 3
 
     #----------------------------------------------------#
     #   下载预训练权重
@@ -305,9 +300,14 @@ if __name__ == "__main__":
         #   根据预训练权重的Key和模型的Key进行加载
         #------------------------------------------------------#
         model_dict      = model.state_dict()
+
         pretrained_dict = torch.load(model_path, map_location = device)
+        # add prefix 'backbone.' to pretrained_dict
+        renamed_dict = {f'backbone.{k}': v for k, v in pretrained_dict.items()}
+
+
         load_key, no_load_key, temp_dict = [], [], {}
-        for k, v in pretrained_dict.items():
+        for k, v in renamed_dict.items():
             if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
                 temp_dict[k] = v
                 load_key.append(k)
@@ -531,8 +531,8 @@ if __name__ == "__main__":
                 #---------------------------------------#
                 lr_scheduler_func = get_lr_scheduler(lr_decay_type, Init_lr_fit, Min_lr_fit, UnFreeze_Epoch)
 
-                for param in model.backbone.parameters():
-                    param.requires_grad = True
+                # for param in model.backbone.parameters():
+                #     param.requires_grad = True
 
                 epoch_step      = num_train // batch_size
                 epoch_step_val  = num_val // batch_size
@@ -564,7 +564,6 @@ if __name__ == "__main__":
             set_optimizer_lr(optimizer, lr_scheduler_func, epoch)
 
             fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callback, optimizer, epoch, epoch_step, epoch_step_val, gen, gen_val, UnFreeze_Epoch, Cuda, fp16, scaler, save_period, save_dir, local_rank)
-            # fit_one_epoch(model_train, model, yolo_loss, loss_history, eval_callback, optimizer, epoch, epoch_step, epoch_step_val, gen, gen_val, UnFreeze_Epoch, Cuda, fp16, scaler, save_period, save_dir, local_rank)
 
             if distributed:
                 dist.barrier()
