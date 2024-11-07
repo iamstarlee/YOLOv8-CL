@@ -72,7 +72,7 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
     h5_file3.close()
 
     # 写入 JSON 文件
-    with open(os.path.join(target_dir, 'train_bboxes.json'), 'w') as json_file:
+    with open(os.path.join(target_dir, 'val_bboxes.json'), 'w') as json_file:
         json.dump(bbox_data, json_file)
 
     print('特征和边界框已成功保存。')
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     save_val_path3 = os.path.join(target_dir, 'val_backbone_outputs3.h5')
 
     # 创建yolo模型并加载预训练权重
-    model = YoloBody(input_shape, num_classes=2, phi='l', pretrained=pretrained)
+    model = YoloBody(input_shape, num_classes=num_classes, phi='l', pretrained=pretrained)
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cuda')), strict=True)
     model = model.cuda()
     Backbone = nn.Sequential(*list(model.children())[:1])
@@ -184,5 +184,4 @@ if __name__ == "__main__":
                                         mosaic=mosaic, mixup=mixup, mosaic_prob=mosaic_prob, mixup_prob=mixup_prob, train=False, special_aug_ratio=special_aug_ratio)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, collate_fn=yolo_dataset_collate)
 
-    save_backbone_outputs(Backbone, dataloader_train, class_names, target_class_names, input_shape, save_train_path1, save_train_path2, save_train_path3, target_dir)
-    # test(Backbone, dataloader_val)
+    save_backbone_outputs(Backbone, dataloader_val, class_names, target_class_names, input_shape, save_val_path1, save_val_path2, save_val_path3, target_dir)

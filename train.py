@@ -49,7 +49,7 @@ if __name__ == "__main__":
     #   Seed    用于固定随机种子
     #           使得每次独立训练都可以获得一样的结果
     #----------------------------------------------#
-    seed            = 11
+    seed            = 42
     #---------------------------------------------------------------------#
     #   distributed     用于指定是否使用单机多卡分布式运行
     #                   终端指令仅支持Ubuntu。CUDA_VISIBLE_DEVICES用于在Ubuntu下指定显卡。
@@ -186,12 +186,12 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 300
-    Unfreeze_batch_size = 32
+    Unfreeze_batch_size = 64
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
     #------------------------------------------------------------------#
-    Freeze_Train        = True
+    Freeze_Train        = False
 
     #------------------------------------------------------------------#
     #   其它训练参数：学习率、优化器、学习率下降有关
@@ -530,8 +530,8 @@ if __name__ == "__main__":
                 #---------------------------------------#
                 lr_scheduler_func = get_lr_scheduler(lr_decay_type, Init_lr_fit, Min_lr_fit, UnFreeze_Epoch)
 
-                # for param in model.backbone.parameters():
-                #     param.requires_grad = True
+                for param in model.backbone.parameters():
+                    param.requires_grad = True
 
                 epoch_step      = num_train // batch_size
                 epoch_step_val  = num_val // batch_size

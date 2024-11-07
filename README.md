@@ -17,13 +17,17 @@ train.py中训练前需要调整的地方：
 训练完成的权重会储存在logs文件夹中
 
 # 3.中间数据存储
-saveh5.py中有相关代码，运行后会将中间数据储存在h5文件中，将对应标签储存在json文件中
-需要把文件中classes_path路径修改为增量训练txt路径，类别中需要包含原始类别和增量类别
+1. 修改/model_data/voc_classes.txt中的类别数量
+2. 运行voc_annotation.py生成类别对应的标注文件
+3. 修改saveh5.py中的target_class_names，使之与voc_classes.txt中的类别保持一致
+4. 修改save_backbone_outputs函数的三个输入：dataloader_val、save_val_path1，save_val_path2，save_val_path3和json文件名val_bboxes.json，运行saveh5.py，生成中间数据的验证集
+5. 修改save_backbone_outputs函数的三个输入：dataloader_train、save_train_path1，save_train_path2，save_train_path3和json文件名train_bboxes.json，运行saveh5.py，生成中间数据的训练集
+
 
 # 4.增量学习训练（*需灵汐配合*）
-train_head.py中为训练相关部分
-需要将classes_path路径修改为增量训练txt路径，将dataset_train与dataset_val的路径改为数据存储中生成的路径。
-训练完成后生成完整的包含BackBone与Head部分的网络权重
+1. 确保classes_path和class_names包含的类别一致
+2. 确保weight_path路径包含骨干特征提取网络
+3. 运行train_head.py
 
 
 # 5.SNN转换与map测试

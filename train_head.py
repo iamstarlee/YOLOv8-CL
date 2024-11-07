@@ -99,8 +99,7 @@ if __name__ == '__main__':
     save_dir         = 'SNN_logs'
     weight_path      = os.path.join("./logs/best_epoch_weights.pth")
     lr_decay_type    = "cos"
-    # class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
-    class_names      = ['aeroplane', 'bicycle']
+    class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
     target_classes   = get_target_classes(classes_path, class_names)
     train_annotation_path   = './2007_train.txt'
     val_annotation_path     = './2007_val.txt'
