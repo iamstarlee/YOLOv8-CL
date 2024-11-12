@@ -19,6 +19,7 @@ from get_the_classes import get_target_classes, load_data_with_specific_classes
 import numpy as np
 from functools import partial
 from utils.utils import worker_init_fn
+import time
 
 
 class Dataset_Head(Dataset):
@@ -82,9 +83,9 @@ def count_json_lines(file_path):
 
 if __name__ == '__main__':
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    epochs           = 300
+    epochs           = 50
     cuda             = True
-    batch_size       = 32
+    batch_size       = 1
     Init_lr          = 1e-2
     Min_lr           = Init_lr * 0.01
     lr_limit_max     = 5e-2
@@ -106,7 +107,7 @@ if __name__ == '__main__':
     train_lines, val_lines, num_train, num_val = load_data_with_specific_classes(train_annotation_path, val_annotation_path, target_classes)
     epoch_step       = num_train // batch_size
     epoch_step_val   = num_val // batch_size
-    save_period      = 15
+    save_period      = 10
 
 
     # Here, num_classes = 4
@@ -159,7 +160,7 @@ if __name__ == '__main__':
     log_dir         = os.path.join(save_dir, "loss_" + str(time_str))
     loss_history    = LossHistory(log_dir, model, input_shape=input_shape)
     eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, True, \
-                                        eval_flag=True, period=15) # period 是多少轮后开始评估模型
+                                        eval_flag=True, period=2) # period 是多少轮后开始评估模型
     
 
     pg0, pg1, pg2 = [], [], []
@@ -198,14 +199,19 @@ if __name__ == '__main__':
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
         
         for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_train):
+            start_time = time.time()
             optimizer.zero_grad()
-            if cuda:
-                feat1 = feat1.cuda()
-                feat2 = feat2.cuda()
-                feat3 = feat3.cuda()
-                labels = labels.cuda()
-  
+            # if cuda:
+            feat1 = feat1.cuda()
+            feat2 = feat2.cuda()
+            feat3 = feat3.cuda()
+            labels = labels.cuda()
+            
+            end_time1 = time.time()
+            # print(f"load data costs {end_time1 - start_time}")
             outputs = model_train((feat1, feat2, feat3))
+            end_time2 = time.time()
+            # print(f"train data costs {end_time2 - end_time1}")
 
             loss_value = yolo_loss(outputs, labels)
 
@@ -213,12 +219,16 @@ if __name__ == '__main__':
             torch.nn.utils.clip_grad_norm_(model_train.parameters(), max_norm=10.0)  # clip gradients
             optimizer.step()
             
+            end_time3 = time.time()
+            # print(f"back prop costs {end_time3 - end_time2}")
             # ema.update(model_train)
 
             loss += loss_value.item()
             
             pbar.set_postfix(**{'loss'  : loss / (iteration + 1), 'lr'    : get_lr(optimizer)})
             pbar.update(1)
+            end_time4 = time.time()
+            # print(f"end of al costs {end_time4 - end_time3}")
             
         pbar.close()
         print('Finish Train')
@@ -229,11 +239,11 @@ if __name__ == '__main__':
         model_eval = model_train.eval()
         for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_val):
             with torch.no_grad():
-                if cuda:
-                    feat1 = feat1.cuda()
-                    feat2 = feat2.cuda()
-                    feat3 = feat3.cuda()
-                    labels = labels.cuda()
+                # if cuda:
+                feat1 = feat1.cuda()
+                feat2 = feat2.cuda()
+                feat3 = feat3.cuda()
+                labels = labels.cuda()
                 #----------------------#
                 #   清零梯度
                 #----------------------#
