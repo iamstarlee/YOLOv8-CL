@@ -6,6 +6,8 @@ from nets.backbone import Backbone, C2f, Conv
 from nets.yolo_training import weights_init
 from utils.utils_bbox import make_anchors
 
+from nets.neck import BateVAE
+
 def fuse_conv_and_bn(conv, bn):
     # 混合Conv2d + BatchNorm2d 减少计算量
     # Fuse Conv2d() and BatchNorm2d() layers https://tehnokv.com/posts/fusing-batchnorm-and-conv/
@@ -111,6 +113,30 @@ class YoloBody(nn.Module):
 
         self.training_head = False
 
+        # Decode attribution
+        hidden_dims3 = [64, 128, 256, 512] #20可用
+        hidden_dims2 = [32, 64, 128, 256, 512] #40可用
+        hidden_dims1 = [16, 32, 64, 128, 256, 576] #80可用
+
+        size3 = (20,20)
+        size2 = (40,40)
+        size1 = (80,80)
+
+        view23 = (-1, 512, 2, 2)
+        view1 = (-1, 576, 2, 2)
+
+        outchannels23 = 512
+        outchannels1 = 256
+
+        in_channels1 = 256
+        in_channels23 = 512
+
+        latent_dim = 25600
+
+        self.decode_model1 = BateVAE(size=size1,view=view1,in_channels=in_channels1, outchannels=outchannels1, latent_dim=latent_dim, hidden_dims=hidden_dims1, beta=8, gamma=1000, max_capacity=500)
+        self.decode_model2 = BateVAE(size=size2,view=view23,in_channels=in_channels23, outchannels=outchannels23, latent_dim=latent_dim, hidden_dims=hidden_dims2, beta=8, gamma=1000, max_capacity=500)
+        self.decode_model3 = BateVAE(size=size3,view=view23,in_channels=in_channels23, outchannels=outchannels23, latent_dim=latent_dim, hidden_dims=hidden_dims3, beta=8, gamma=1000, max_capacity=500)
+
     def fuse(self):
         print('Fusing layers... ')
         for m in self.modules():
@@ -121,13 +147,17 @@ class YoloBody(nn.Module):
         return self
     
     def forward(self, x):
-        #  backbone
+        # backbone
         if self.training_head:
             feat1 = x[0]
             feat2 = x[1]
             feat3 = x[2]
         else:
             feat1, feat2, feat3 = self.backbone.forward(x)
+            # Decode features
+            feat1 = self.decode_model1(feat1)
+            feat2 = self.decode_model2(feat2)
+            feat3 = self.decode_model3(feat3)
         
         #------------------------加强特征提取网络------------------------# 
         # 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
