@@ -1,12 +1,15 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from nets.backbone import Backbone, C2f, Conv
 from nets.yolo_training import weights_init
 from utils.utils_bbox import make_anchors
 
 from nets.neck import BateVAE
+from typing import List, Callable, Union, Any, TypeVar, Tuple
+Tensor = TypeVar('torch.tensor')
 
 def fuse_conv_and_bn(conv, bn):
     # 混合Conv2d + BatchNorm2d 减少计算量
@@ -113,29 +116,98 @@ class YoloBody(nn.Module):
 
         self.training_head = False
 
-        # Decode attribution
-        hidden_dims3 = [64, 128, 256, 512] #20可用
-        hidden_dims2 = [32, 64, 128, 256, 512] #40可用
-        hidden_dims1 = [16, 32, 64, 128, 256, 576] #80可用
 
-        size3 = (20,20)
-        size2 = (40,40)
-        size1 = (80,80)
+        #------------------------变分自编码器网络------------------------#
+        
+        self.latent_dim = 25600
+        self.beta = 4
+        self.gamma = 1000.
+        self.loss_type = 'B'
+        self.C_max = torch.Tensor([25])
+        self.C_stop_iter = 1e5
 
-        view23 = (-1, 512, 2, 2)
-        view1 = (-1, 576, 2, 2)
+        self.hidden_dims = [32, 64, 128, 256, 512] #40可用
+        
+        self.in_channels = 1280
+        self.outchannels = 1280
 
-        outchannels23 = 512
-        outchannels1 = 256
+        modules = []
+        hidden_dims = [32, 64, 128, 256, 512]
 
-        in_channels1 = 256
-        in_channels23 = 512
+        # Encoder
+        in_channels = self.in_channels
+        for h_dim in hidden_dims:
+            modules.append(
+                nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels=h_dim,
+                              kernel_size= 3, stride= 2, padding  = 1),
+                    nn.BatchNorm2d(h_dim),
+                    nn.LeakyReLU())
+            )
+            in_channels = h_dim
 
-        latent_dim = 25600
+        self.encoder = nn.Sequential(*modules)
+        self.fc_mu = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
 
-        self.decode_model1 = BateVAE(size=size1,view=view1,in_channels=in_channels1, outchannels=outchannels1, latent_dim=latent_dim, hidden_dims=hidden_dims1, beta=8, gamma=1000, max_capacity=500)
-        self.decode_model2 = BateVAE(size=size2,view=view23,in_channels=in_channels23, outchannels=outchannels23, latent_dim=latent_dim, hidden_dims=hidden_dims2, beta=8, gamma=1000, max_capacity=500)
-        self.decode_model3 = BateVAE(size=size3,view=view23,in_channels=in_channels23, outchannels=outchannels23, latent_dim=latent_dim, hidden_dims=hidden_dims3, beta=8, gamma=1000, max_capacity=500)
+        # Decoder
+        modules = []
+
+        self.decoder_input = nn.Linear(self.latent_dim, hidden_dims[-1] * 4)
+
+        hidden_dims.reverse()
+
+        for i in range(len(hidden_dims) - 1):
+            modules.append(
+                nn.Sequential(
+                    nn.ConvTranspose2d(hidden_dims[i],
+                                       hidden_dims[i + 1],
+                                       kernel_size=3,
+                                       stride = 2,
+                                       padding=1,
+                                       output_padding=1),
+                    nn.BatchNorm2d(hidden_dims[i + 1]),
+                    nn.LeakyReLU())
+            )
+
+        self.decoder = nn.Sequential(*modules)
+        self.size = (40,40)
+        self.view = (-1, 512, 2, 2)
+
+
+        self.final_layer = nn.Sequential(
+            nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(hidden_dims[-1]),
+            nn.LeakyReLU(),
+            nn.Conv2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(hidden_dims[-1], out_channels=self.outchannels, kernel_size=3, padding=1), # 512可用
+            # nn.Conv2d(hidden_dims[-1], out_channels=256, kernel_size=3, padding=1), # 256可用
+            nn.Tanh(),
+            nn.AdaptiveAvgPool2d(self.size)  # 自适应调整到 [512, 20, 20]
+            # nn.AdaptiveAvgPool2d((40, 40))
+            # nn.AdaptiveAvgPool2d((80, 80))
+        )
+
+    def encode(self, input:Tensor) -> List[Tensor]:
+        result = self.encoder(input)
+        result = torch.flatten(result, start_dim=1)
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+        return [mu, log_var]
+    
+    def decode(self, z: Tensor) -> Tensor:
+        result = self.decoder_input(z)
+        result = result.view(self.view) # 20,40可用
+        # result = result.view(-1, 576, 2, 2) # 80可用
+        result = self.decoder(result)
+        result = self.final_layer(result)
+        return result
+    
+    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return eps * std + mu
 
     def fuse(self):
         print('Fusing layers... ')
@@ -149,15 +221,36 @@ class YoloBody(nn.Module):
     def forward(self, x):
         # backbone
         if self.training_head:
-            feat1 = x[0]
-            feat2 = x[1]
-            feat3 = x[2]
+            feat1, feat2, feat3 = self.backbone.forward(x)
+            # Decode features
+            # 处理第一和第三个维度的特征
+            feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
+            feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
+            feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
+            
+            # feat_three = self.decode_model2(feat_three)
+            # 融合版本
+            mu, log_var = self.encode(feat_three)
+            z = self.reparameterize(mu, log_var)
+            return z
         else:
             feat1, feat2, feat3 = self.backbone.forward(x)
             # Decode features
-            feat1 = self.decode_model1(feat1)
-            feat2 = self.decode_model2(feat2)
-            feat3 = self.decode_model3(feat3)
+            # 处理第一和第三个维度的特征
+            feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
+            feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
+            feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
+            
+            # feat_three = self.decode_model2(feat_three)
+            # 融合版本
+            mu, log_var = self.encode(feat_three)
+            z = self.reparameterize(mu, log_var)
+            feat_three = self.decode(z)
+            
+            # 还原第一和第三个维度的特征
+            feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)
+            feat1 = F.interpolate(feat1, size=(80, 80), mode='bilinear', align_corners=False) # 1*256*40*40 => 1*256*80*80
+            feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
         
         #------------------------加强特征提取网络------------------------# 
         # 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
