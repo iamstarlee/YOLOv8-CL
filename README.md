@@ -1,3 +1,11 @@
+# 0. 多卡并行训练和推理
+```python
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=6 --master_port=25641 train.py
+```
+```python
+CUDA_VISIBLE_DEVI=0 python predict.py
+```
+
 # 1.数据集下载
 在网盘中下载数据集并解压到工程的根目录下。
 /model_data/voc_classes_ori.txt中是数据集中全部的类别名称
@@ -37,7 +45,7 @@ train.py中训练前需要调整的地方：
 最终是将转换后SNN网络在灵汐板卡上推理（*需灵汐配合*）
 
 
-清华后续优化要点：
+# 清华后续优化要点：
 1.中间数据储存时对原始类别数据随机储存部分数据；
 2.中间数据进行encoding与decoding，储存压缩数据，减小数据存储代价。
 注：snn推理与增量模型训练不变，不影响灵汐对模型的适配与部署。
