@@ -1,2 +1,6 @@
 VOCdevkit
 VOC07+12+test.zip
+2007_train.txt
+2007_val.txt
+utils/__pycache__
+SNN_logs
