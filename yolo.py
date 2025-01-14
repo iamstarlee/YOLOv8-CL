@@ -25,7 +25,7 @@ class YOLO(object):
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
         #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
         #--------------------------------------------------------------------------#
-        "model_path"        : 'logs/best_epoch_weights.pth',
+        "model_path"        : 'SNN_logs/loss_2025_01_11_16_36_59/best_epoch_weights.pth',
         "classes_path"      : 'model_data/voc_classes.txt',
         #---------------------------------------------------------------------#
         #   输入图片的大小，必须为32的倍数。
@@ -102,7 +102,14 @@ class YOLO(object):
         self.net    = YoloBody(self.input_shape, self.num_classes, self.phi)
         
         device      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.net.load_state_dict(torch.load(self.model_path, map_location=device))
+        # 重命名模型的keys，再导入模型参数
+        pretrained_dict = torch.load(self.model_path, map_location = device)
+        rename_dict = {
+                        key.replace("decode_model2.", "") 
+                        if key.startswith("decode_model2.") else key: value
+                        for key, value in pretrained_dict.items()
+                        }
+        self.net.load_state_dict(rename_dict)
 
 
         self.net    = self.net.fuse().eval()
