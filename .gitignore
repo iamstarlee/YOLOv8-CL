@@ -4,3 +4,6 @@ VOC07+12+test.zip
 2007_val.txt
 utils/__pycache__
 SNN_logs
+weights
+__pycache__
+nets/__pycache__
