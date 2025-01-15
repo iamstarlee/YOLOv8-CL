@@ -56,12 +56,12 @@ if __name__ == "__main__":
     #                   Windows系统下默认使用DP模式调用所有显卡，不支持DDP。
     #   DP模式：
     #       设置            distributed = False
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python train.py
+    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python train.py
     #   DDP模式：
     #       设置            distributed = True
-    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py
+    #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 --master_port=12345 train.py
     #---------------------------------------------------------------------#
-    distributed     = False
+    distributed     = True
     #---------------------------------------------------------------------#
     #   sync_bn     是否使用sync_bn，DDP模式多卡可用
     #---------------------------------------------------------------------#
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'SNN_logs/loss_2025_01_10_14_56_56/best_epoch_weights.pth' # 'weights/yolov8_l_backbone_weights.pth'
+    model_path      = 'weights/yolov8_l_backbone_weights.pth'
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -256,7 +256,8 @@ if __name__ == "__main__":
     #------------------------------------------------------#
     ngpus_per_node  = torch.cuda.device_count()
     if distributed:
-        dist.init_process_group(backend="nccl")
+        from datetime import timedelta
+        dist.init_process_group(backend="nccl", timeout=timedelta(seconds=3600))
         local_rank  = int(os.environ["LOCAL_RANK"])
         rank        = int(os.environ["RANK"])
         device      = torch.device("cuda", local_rank)
@@ -303,11 +304,14 @@ if __name__ == "__main__":
 
         pretrained_dict = torch.load(model_path, map_location = device)
         # add prefix 'backbone.' to pretrained_dict
-        renamed_dict = {f'backbone.{k}': v for k, v in pretrained_dict.items()}
+        renamed_dict = {
+                        f'backbone.{k}' if k.startswith('stem') or k.startswith('dark')
+                        else k : v 
+                        for k, v in pretrained_dict.items()}
 
 
         load_key, no_load_key, temp_dict = [], [], {}
-        for k, v in pretrained_dict.items():  # 是否只加载骨干的参数，可以替换 renamed_dict
+        for k, v in renamed_dict.items():  # 是否只加载骨干的参数，可以替换 renamed_dict
             if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
                 temp_dict[k] = v
                 load_key.append(k)
