@@ -7,3 +7,4 @@ SNN_logs
 weights
 __pycache__
 nets/__pycache__
+targets
