@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nets.backbone import Backbone, C2f, Conv
+from nets.backbone import C2f, Conv # Backbone
+from nets.backbone_and_vae import Backbone
 from nets.yolo_training import weights_init
 from utils.utils_bbox import make_anchors
 
@@ -77,7 +78,8 @@ class YoloBody(nn.Module):
         #   512, 40, 40
         #   1024 * deep_mul, 20, 20
         #---------------------------------------------------#
-        self.backbone   = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
+        # self.backbone   = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
+        self.backbone = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
 
         #------------------------加强特征提取网络------------------------# 
         self.upsample   = nn.Upsample(scale_factor=2, mode="nearest")
@@ -115,7 +117,7 @@ class YoloBody(nn.Module):
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 
         self.training_head = False
-
+        self.is_vae = False
 
         #------------------------变分自编码器网络------------------------#
         
@@ -222,26 +224,24 @@ class YoloBody(nn.Module):
         # backbone
         if self.training_head:
             feat1, feat2, feat3 = self.backbone.forward(x)
-            # Decode features
+            # Encode features
             # 处理第一和第三个维度的特征
             feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
             feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
             feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
             
-            # feat_three = self.decode_model2(feat_three)
             # 融合版本
             mu, log_var = self.encode(feat_three)
             z = self.reparameterize(mu, log_var)
             return z
-        else:
+        if self.training_head is False and self.is_vae is False:
             feat1, feat2, feat3 = self.backbone.forward(x)
-            # Decode features
+            # Encode features
             # 处理第一和第三个维度的特征
             feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
             feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
             feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
             
-            # feat_three = self.decode_model2(feat_three)
             # 融合版本
             mu, log_var = self.encode(feat_three)
             z = self.reparameterize(mu, log_var)
@@ -252,6 +252,16 @@ class YoloBody(nn.Module):
             feat1 = F.interpolate(feat1, size=(80, 80), mode='bilinear', align_corners=False) # 1*256*40*40 => 1*256*80*80
             feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
         
+        if self.training_head is False and self.is_vae is True:
+            z = self.Backbone_and_vae(x)
+            feat_three = self.decode(z)
+
+            # 还原第一和第三个维度的特征
+            feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)
+            feat1 = F.interpolate(feat1, size=(80, 80), mode='bilinear', align_corners=False) # 1*256*40*40 => 1*256*80*80
+            feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
+        
+
         #------------------------加强特征提取网络------------------------# 
         # 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
         P5_upsample = self.upsample(feat3)

@@ -95,7 +95,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'weights/yolov8_l_backbone_weights.pth'
+    model_path      = 'SNN_logs/loss_2025_01_17_17_44_28/best_epoch_weights.pth' # 'weights/yolov8_l_backbone_weights.pth'
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -174,8 +174,8 @@ if __name__ == "__main__":
     #                       (当Freeze_Train=False时失效)
     #------------------------------------------------------------------#
     Init_Epoch          = 0
-    Freeze_Epoch        = 10
-    Freeze_batch_size   = 32
+    Freeze_Epoch        = 100
+    Freeze_batch_size   = 66
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -185,13 +185,13 @@ if __name__ == "__main__":
     #                           Adam可以使用相对较小的UnFreeze_Epoch
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
-    UnFreeze_Epoch      = 500
-    Unfreeze_batch_size = 64
+    UnFreeze_Epoch      = 400
+    Unfreeze_batch_size = 66
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
     #------------------------------------------------------------------#
-    Freeze_Train        = False
+    Freeze_Train        = True
 
     #------------------------------------------------------------------#
     #   其它训练参数：学习率、优化器、学习率下降有关
@@ -421,9 +421,13 @@ if __name__ == "__main__":
     if True:
         UnFreeze_flag = False
         #------------------------------------#
-        #   冻结一定部分训练
+        #   冻结除了VAE以外的所有层
         #------------------------------------#
+        
         if Freeze_Train:
+            # for name, param in model.named_parameters():
+            #     if 'encoder' not in name or 'fc_mu' not in name or 'fc_var' not in name or 'decoder_input' not in name or 'decoder' not in name or 'final_layer' not in name:
+            #         param.requires_grad = False
             for param in model.backbone.parameters():
                 param.requires_grad = False
 

@@ -44,7 +44,7 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
             # 如果当前图像包含目标类别的边界框，则保存特征和所有边界框
             if contains_target_class:
                 features = model(images)  # 提取特征，features 经过encoder的 tuple [1, 25600]
-                print(f"features shape is {features.shape}")
+                
                 # 保存特征
                 img_feature = features.squeeze(0).cpu().numpy()
 
@@ -67,7 +67,7 @@ def save_backbone_outputs(model, dataloader, class_names, target_class_names, in
     h5_file.close()
 
     # 写入 JSON 文件
-    with open(os.path.join(target_dir, 'train_bboxes.json'), 'w') as json_file:
+    with open(os.path.join(target_dir, 'val_bboxes.json'), 'w') as json_file:
         json.dump(bbox_data, json_file)
 
     print('特征和边界框已成功保存。')
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     classes_path = 'model_data/voc_classes.txt'
     train_annotation_path = '2007_train.txt'
     val_annotation_path = '2007_val.txt'
-    model_path = './SNN_logs/loss_2025_01_11_16_36_59/best_epoch_weights.pth'
+    model_path = './SNN_logs/loss_2025_01_17_17_44_28/best_epoch_weights.pth'
     input_shape = [640, 640]
     batch_size = 1
     phi = 'l'
@@ -154,6 +154,7 @@ if __name__ == "__main__":
     # 创建yolo模型并加载预训练权重
     model = YoloBody(input_shape, num_classes=num_classes, phi='l', pretrained=pretrained)
     pretrained_dict = torch.load(model_path, map_location=torch.device('cuda'))
+    print(f"pretrained_dict are {pretrained_dict.keys()}")
     # delete prefix 'decode_model2.' to pretrained_dict
     new_dict = {
         key.replace("decode_model2.", "") if key.startswith("decode_model2.") else key: value
@@ -183,4 +184,4 @@ if __name__ == "__main__":
                                         mosaic=mosaic, mixup=mixup, mosaic_prob=mosaic_prob, mixup_prob=mixup_prob, train=False, special_aug_ratio=special_aug_ratio)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, collate_fn=yolo_dataset_collate)
 
-    save_backbone_outputs(model, dataloader_train, class_names, target_class_names, input_shape, save_train_path, target_dir)
+    save_backbone_outputs(model, dataloader_val, class_names, target_class_names, input_shape, save_val_path, target_dir)

@@ -86,7 +86,7 @@ if __name__ == '__main__':
     class_names, num_classes = get_classes(classes_path)
     pretrained       = False
     save_dir         = 'SNN_logs'
-    weight_path      = os.path.join("./logs/best_epoch_weights.pth")
+    weight_path      = os.path.join('SNN_logs/loss_2025_01_17_17_44_28/best_epoch_weights.pth')
     lr_decay_type    = "cos"
     class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
     target_classes   = get_target_classes(classes_path, class_names)
@@ -122,9 +122,13 @@ if __name__ == '__main__':
     print("\n\033[1;33;44m温馨提示，head部分没有载入是正常现象，Backbone部分没有载入是错误的。\033[0m")
 
 
-    # Freeze backbone
-    for param in model.backbone.parameters():
-        param.requires_grad = False
+    # # Freeze backbone
+    # for param in model.backbone.parameters():
+    #     param.requires_grad = False
+    # # Freeze backbone and vae
+    for name, param in model.named_parameters():
+        if 'encoder' not in name or 'fc_mu' not in name or 'fc_var' not in name or 'decoder_input' not in name or 'decoder' not in name or 'final_layer' not in name:
+            param.requires_grad = False
     
     # Create dataset and dataloader
     dataset_train = Dataset_Head('targets/train_backbone_outputs.h5', 
@@ -169,7 +173,7 @@ if __name__ == '__main__':
 
     model_train = model.train()
     model_train = model_train.cuda()
-    model_train.training_head = True
+    model_train.is_vae = True
     ema = ModelEMA(model_train)
     
 
