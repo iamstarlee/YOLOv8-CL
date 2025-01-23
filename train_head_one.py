@@ -42,8 +42,8 @@ class Dataset_Head(Dataset):
         # import pdb; pdb.set_trace()
         image_id = self.image_ids[idx]
 
-        feat1 = self.h5_file1[image_id][:] # 从h5文件中读取特征
-        feat1 = np.array(feat1, dtype=np.float32)
+        z = self.h5_file1[image_id][:] # 从h5文件中读取特征
+        z = np.array(z, dtype=np.float32)
 
 
         # 需要将boxes转换为YoloDataset中的格式
@@ -59,10 +59,9 @@ class Dataset_Head(Dataset):
             labels_out[i][1] = labels
             labels_out[i][2:] = boxes
 
-        if self.transform:
-            feat1 = self.transform(feat1)
+        
 
-        return feat1, labels_out
+        return z, labels_out
 
 def count_json_lines(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -126,9 +125,9 @@ if __name__ == '__main__':
     # for param in model.backbone.parameters():
     #     param.requires_grad = False
     # # Freeze backbone and vae
-    for name, param in model.named_parameters():
-        if 'encoder' not in name or 'fc_mu' not in name or 'fc_var' not in name or 'decoder_input' not in name or 'decoder' not in name or 'final_layer' not in name:
-            param.requires_grad = False
+    # for name, param in model.named_parameters():
+    #     if 'encoder' not in name or 'fc_mu' not in name or 'fc_var' not in name or 'decoder_input' not in name or 'decoder' not in name or 'final_layer' not in name:
+    #         param.requires_grad = False
     
     # Create dataset and dataloader
     dataset_train = Dataset_Head('targets/train_backbone_outputs.h5', 
@@ -186,18 +185,16 @@ if __name__ == '__main__':
         
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
         
-        for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_train):
+        for iteration, (zs, labels) in enumerate(dataloader_train):
             start_time = time.time()
             optimizer.zero_grad()
             # if cuda:
-            feat1 = feat1.cuda()
-            feat2 = feat2.cuda()
-            feat3 = feat3.cuda()
+            zs = zs.cuda()
             labels = labels.cuda()
             
             end_time1 = time.time()
             # print(f"load data costs {end_time1 - start_time}")
-            outputs = model_train((feat1, feat2, feat3))
+            outputs = model_train(zs)
             end_time2 = time.time()
             # print(f"train data costs {end_time2 - end_time1}")
 
@@ -225,12 +222,10 @@ if __name__ == '__main__':
 
         # model_eval = ema.ema # Evaluations that use moving averaged parameters
         model_eval = model_train.eval()
-        for iteration, (feat1, feat2, feat3, labels) in enumerate(dataloader_val):
+        for iteration, (zs, labels) in enumerate(dataloader_val):
             with torch.no_grad():
                 # if cuda:
-                feat1 = feat1.cuda()
-                feat2 = feat2.cuda()
-                feat3 = feat3.cuda()
+                zs = zs.cuda()
                 labels = labels.cuda()
                 #----------------------#
                 #   清零梯度
@@ -239,7 +234,7 @@ if __name__ == '__main__':
                 #----------------------#
                 #   前向传播
                 #----------------------#
-                outputs     = model_eval((feat1, feat2, feat3))
+                outputs     = model_eval(zs)
                 loss_value  = yolo_loss(outputs, labels)
 
             val_loss += loss_value.item()
@@ -249,12 +244,12 @@ if __name__ == '__main__':
         # 保存权重
         pbar.close()
         print('Finish Validation')
-        model_eval.training_head = False # 下面计算mAP需要走YoloBody forward的另一个分支
+        model_eval.is_vae = False # 下面计算mAP需要走YoloBody forward的另一个分支
         loss_history.append_loss(epoch + 1, loss / epoch_step, val_loss / epoch_step_val)
         eval_callback.on_epoch_end(epoch + 1, model_eval)
         # save_state_dict = ema.ema.state_dict()
         save_state_dict = model.state_dict()
-        model_eval.training_head = True
+        model_eval.is_vae = True
 
         if (epoch + 1) % save_period == 0 or epoch + 1 == epochs:
             torch.save(save_state_dict, os.path.join(save_dir, "ep%03d-loss%.3f-val_loss%.3f.pth" % (epoch + 1, loss / epoch_step, val_loss / epoch_step_val)))

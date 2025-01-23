@@ -403,22 +403,16 @@ def yolo_dataset_collate(batch):
 
 # features DataLoader中collate_fn使用
 def feats_dataset_collate(batch):
-    feats1  = []
-    feats2  = []
-    feats3  = []
     labels  = []
-    for i, (feat1, feat2, feat3, label) in enumerate(batch):
-        feats1.append(feat1)
-        feats2.append(feat2)
-        feats3.append(feat3)
+    zs = []
+    for i, (z, label) in enumerate(batch):
+        zs.append(z)
         label[:, 0] = i
         labels.append(label)
-    feats1 = torch.from_numpy(np.array(feats1)).type(torch.FloatTensor)
-    feats2 = torch.from_numpy(np.array(feats2)).type(torch.FloatTensor)
-    feats3 = torch.from_numpy(np.array(feats3)).type(torch.FloatTensor)
+    zs = torch.from_numpy(np.array(zs)).type(torch.FloatTensor)
     labels  = torch.from_numpy(np.concatenate(labels, 0)).type(torch.FloatTensor)
 
-    return feats1, feats2, feats3, labels
+    return zs, labels
 
 # # DataLoader中collate_fn使用
 # def yolo_dataset_collate(batch):

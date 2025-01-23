@@ -222,7 +222,7 @@ class YoloBody(nn.Module):
     
     def forward(self, x):
         # backbone
-        if self.training_head:
+        if self.training_head == True and self.is_vae is False:
             feat1, feat2, feat3 = self.backbone.forward(x)
             # Encode features
             # 处理第一和第三个维度的特征
@@ -253,8 +253,7 @@ class YoloBody(nn.Module):
             feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
         
         if self.training_head is False and self.is_vae is True:
-            z = self.Backbone_and_vae(x)
-            feat_three = self.decode(z)
+            feat_three = self.decode(x)
 
             # 还原第一和第三个维度的特征
             feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)
