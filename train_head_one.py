@@ -70,7 +70,7 @@ def count_json_lines(file_path):
 
 if __name__ == '__main__':
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    epochs           = 50
+    epochs           = 100
     cuda             = True
     batch_size       = 1
     Init_lr          = 1e-2
