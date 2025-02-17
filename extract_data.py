@@ -260,7 +260,7 @@ def visual_one(imgfile, xmlfile):
 
     image = cv2.imread(imgfile)
     img_name = imgfile.split('/')[-1]
-    shutil.copy2(imgfile, os.path.join(IMAGE_OUTPUT_PATH, img_name.split('.')[0] + '+_out.jpg')
+    shutil.copy2(imgfile, os.path.join(IMAGE_OUTPUT_PATH, img_name.split('.')[0] + '+_out.jpg'))
 
     # 解析XML文件
     tree = ET.parse(xmlfile)
