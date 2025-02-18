@@ -6,6 +6,8 @@ import cv2
 from collections import Counter
 import random
 import re
+from matplotlib import pyplot as plt
+from itertools import islice
 
 def count_object_names_in_xml(root_folder, output_file):
     # 初始化计数器
@@ -339,6 +341,71 @@ def extract_and_visual_pics(root_folder):
                         visual_one(img_path, file_path)
 
 
+def loss_plot():
+    losses = []
+    val_loss = []
+    
+    log_dir = '/home/lxx/Projects/YOLOv8-CL/SNN_logs'
+
+    with open ('epoch_loss.txt', 'r') as file:
+        for line in file:
+            # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
+            losses.append(float(line.strip()))
+
+    with open ('epoch_val_loss.txt', 'r') as file:
+        for line in file:
+            # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
+            val_loss.append(float(line.strip()))
+
+    iters = range(len(losses))
+    print(f"iters is {iters}")
+    plt.figure()
+    plt.plot(iters, losses, 'red', linewidth = 2, label='train loss')
+    plt.plot(iters, val_loss, 'coral', linewidth = 2, label='val loss')
+    plt.grid(True)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend(loc="upper right")
+
+    plt.savefig(os.path.join(log_dir, "epoch_loss.png"))
+
+    plt.cla()
+    plt.close("all")
+
+def plot_map():
+    maps = []
+    maps2 = []
+    log_dir = '/home/lxx/Projects/YOLOv8-CL/SNN_logs'
+    with open ('SNN_logs/loss_2024_12_10_20_30_05/epoch_map.txt', 'r') as file:
+        for line in islice(file,100):
+            # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
+            maps.append(float(line.strip()))
+
+    with open ('SNN_logs/loss_2025_01_11_16_36_59/epoch_map.txt', 'r') as file:
+        for line in islice(file,100):
+            # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
+            maps2.append(float(line.strip()))
+
+    iters = range(len(maps))
+    plt.figure()
+    plt.plot(iters, maps, 'red', linewidth = 2, label='map without vae')
+    plt.plot(iters, maps2, 'coral', linewidth = 2, label='map with vae')
+
+
+
+    plt.grid(True)
+    plt.xlabel('Epoch')
+    plt.ylabel('Map %s'%str(0.5))
+    plt.title('A Map Curve')
+    plt.legend(loc="lower right")
+
+    plt.savefig(os.path.join(log_dir, "epoch_map.png"))
+    plt.cla()
+    plt.close("all")
+
+    print("Get map done.")
+
+
 if __name__ == '__main__':
     # count classes
     # root_folder = "/workspace/YOLOv8-CL-main/VOCdevkit/VOC2007/Annotations"  # 替换为你的根文件夹路径
@@ -363,8 +430,8 @@ if __name__ == '__main__':
     # rename_files_in_folder(folder_path)
 
     # clean xml files
-    folder_path = "/workspace/YOLOv8-CL-main/VOCdevkit/VOC2007/Annotations"
-    clean_xml(folder_path)
+    # folder_path = "/workspace/YOLOv8-CL-main/VOCdevkit/VOC2007/Annotations"
+    # clean_xml(folder_path)
 
     # visual
     # visualization()
@@ -377,3 +444,4 @@ if __name__ == '__main__':
     # folder_path = "/workspace/YOLOv8-CL-main/VOCdevkit/VOC2007/Annotations"
     # extract_and_visual_pics(folder_path)
     
+    plot_map()
