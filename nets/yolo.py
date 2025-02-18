@@ -128,7 +128,7 @@ class YoloBody(nn.Module):
         self.C_max = torch.Tensor([25])
         self.C_stop_iter = 1e5
 
-        self.hidden_dims = [32, 64, 128, 256, 512] #40可用
+        self.hidden_dims = [32, 64, 128, 256, 512] 
         
         self.in_channels = 1280
         self.outchannels = 1280
