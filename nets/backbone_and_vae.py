@@ -257,7 +257,7 @@ class Backbone(nn.Module):
         # Encode features
         # 处理第一和第三个维度的特征
         feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
-        feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
+        feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*1024*20*20 => 1*512*40*40
         feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
         
         # 融合版本
