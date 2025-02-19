@@ -376,26 +376,26 @@ def plot_map():
     maps = []
     maps2 = []
     log_dir = '/home/lxx/Projects/YOLOv8-CL/SNN_logs'
-    with open ('SNN_logs/loss_2024_12_10_20_30_05/epoch_map.txt', 'r') as file:
+    with open ('SNN_logs/compress0/epoch_map.txt', 'r') as file:
         for line in islice(file,100):
             # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
             maps.append(float(line.strip()))
 
-    with open ('SNN_logs/loss_2025_01_11_16_36_59/epoch_map.txt', 'r') as file:
+    with open ('SNN_logs/mAP_with_VAE/epoch_map.txt', 'r') as file:
         for line in islice(file,100):
             # 去掉行末的换行符，并将字符串转换为浮点数后添加到列表中
             maps2.append(float(line.strip()))
 
     iters = range(len(maps))
     plt.figure()
-    plt.plot(iters, maps, 'red', linewidth = 2, label='map without vae')
-    plt.plot(iters, maps2, 'coral', linewidth = 2, label='map with vae')
+    plt.plot(iters, maps, 'red', linewidth = 2, label='ρ = 0')
+    plt.plot(iters, maps2, 'coral', linewidth = 2, label='ρ = 1')
 
 
 
     plt.grid(True)
     plt.xlabel('Epoch')
-    plt.ylabel('Map %s'%str(0.5))
+    plt.ylabel('mAP %s'%str(0.5))
     plt.title('A Map Curve')
     plt.legend(loc="lower right")
 
