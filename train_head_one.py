@@ -59,8 +59,6 @@ class Dataset_Head(Dataset):
             labels_out[i][1] = labels
             labels_out[i][2:] = boxes
 
-        
-
         return z, labels_out
 
 def count_json_lines(file_path):
@@ -72,7 +70,7 @@ if __name__ == '__main__':
     device           = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     epochs           = 100
     cuda             = True
-    batch_size       = 1
+    batch_size       = 32  # 放Orin上需要改成1
     Init_lr          = 1e-2
     Min_lr           = Init_lr * 0.01
     lr_limit_max     = 5e-2
@@ -85,9 +83,10 @@ if __name__ == '__main__':
     class_names, num_classes = get_classes(classes_path)
     pretrained       = False
     save_dir         = 'SNN_logs'
-    weight_path      = os.path.join('SNN_logs/loss_2025_01_17_17_44_28/best_epoch_weights.pth')
+    weight_path      = os.path.join('SNN_logs/head_need/best_epoch_weights.pth')
     lr_decay_type    = "cos"
-    class_names      = ['aeroplane', 'bicycle', 'bird', 'boat']
+    class_names      = ['diningtable', 'horse', 'dog', 'motorbike', 'person',
+                          'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
     target_classes   = get_target_classes(classes_path, class_names)
     train_annotation_path   = './2007_train.txt'
     val_annotation_path     = './2007_val.txt'
@@ -97,7 +96,7 @@ if __name__ == '__main__':
     save_period      = 10
 
 
-    # Here, num_classes = 4
+    # Here, num_classes = 10
     model = YoloBody(input_shape, num_classes=num_classes, phi='l', pretrained=pretrained)
 
     # Load backbone param
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     except_dfl = {k : v for k, v in pretrained_dict.items() if 'dfl' not in k}
     
     load_key, no_load_key, temp_dict = [], [], {}
-    for k, v in backbone_weights.items():
+    for k, v in pretrained_dict.items():
         if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
             temp_dict[k] = v
             load_key.append(k)
@@ -121,13 +120,19 @@ if __name__ == '__main__':
     print("\n\033[1;33;44m温馨提示，head部分没有载入是正常现象，Backbone部分没有载入是错误的。\033[0m")
 
 
-    # # Freeze backbone
+    # Freeze backbone
     # for param in model.backbone.parameters():
     #     param.requires_grad = False
-    # # Freeze backbone and vae
-    # for name, param in model.named_parameters():
-    #     if 'encoder' not in name or 'fc_mu' not in name or 'fc_var' not in name or 'decoder_input' not in name or 'decoder' not in name or 'final_layer' not in name:
-    #         param.requires_grad = False
+        
+    for name, param in model.named_parameters():
+        if 'backbone' in name:
+            param.requires_grad = False
+            
+    # Freeze encoder and decoder
+    for name, param in model.named_parameters():
+        if 'encoder' in name or 'decoder' in name:
+            param.requires_grad = False
+            
     
     # Create dataset and dataloader
     dataset_train = Dataset_Head('targets/train_backbone_outputs.h5', 
@@ -186,17 +191,12 @@ if __name__ == '__main__':
         pbar = tqdm(total=epoch_step,desc=f'Epoch {epoch + 1}/{epochs}',postfix=dict,mininterval=0.3)
         
         for iteration, (zs, labels) in enumerate(dataloader_train):
-            start_time = time.time()
             optimizer.zero_grad()
             # if cuda:
             zs = zs.cuda()
             labels = labels.cuda()
             
-            end_time1 = time.time()
-            # print(f"load data costs {end_time1 - start_time}")
             outputs = model_train(zs)
-            end_time2 = time.time()
-            # print(f"train data costs {end_time2 - end_time1}")
 
             loss_value = yolo_loss(outputs, labels)
 
@@ -204,16 +204,13 @@ if __name__ == '__main__':
             torch.nn.utils.clip_grad_norm_(model_train.parameters(), max_norm=10.0)  # clip gradients
             optimizer.step()
             
-            end_time3 = time.time()
-            # print(f"back prop costs {end_time3 - end_time2}")
             # ema.update(model_train)
 
             loss += loss_value.item()
             
             pbar.set_postfix(**{'loss'  : loss / (iteration + 1), 'lr'    : get_lr(optimizer)})
             pbar.update(1)
-            end_time4 = time.time()
-            # print(f"end of al costs {end_time4 - end_time3}")
+
             
         pbar.close()
         print('Finish Train')
