@@ -84,7 +84,7 @@ class Bottleneckbb(nn.Module):
 
 
 class C2f(nn.Module):
-    # CSPNet结构结构，大残差结构
+    # CSPNet结构，大残差结构
     # c1为输入通道数，c2为输出通道数
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         super().__init__()
@@ -220,7 +220,7 @@ class Backbone(nn.Module):
             return self.forward_ori(x)
 
         outputs = []
-        T = 48  # 迭代次数
+        T = 1  # 迭代次数
 
         for t in range(T):
             x_temp = self.stem(x)
