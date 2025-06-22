@@ -25,7 +25,7 @@ class YOLO(object):
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
         #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
         #--------------------------------------------------------------------------#
-        "model_path"        : 'SNN_logs/loss_2025_01_11_16_36_59/best_epoch_weights.pth',
+        "model_path"        : "weights/first10_weights.pth",
         "classes_path"      : 'model_data/voc_classes.txt',
         #---------------------------------------------------------------------#
         #   输入图片的大小，必须为32的倍数。
@@ -100,7 +100,7 @@ class YOLO(object):
         #   建立yolo模型，载入yolo模型的权重
         #---------------------------------------------------#
         self.net    = YoloBody(self.input_shape, self.num_classes, self.phi)
-        
+
         device      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # 重命名模型的keys，再导入模型参数
         pretrained_dict = torch.load(self.model_path, map_location = device)
@@ -215,18 +215,19 @@ class YOLO(object):
 
             label = '{} {:.2f}'.format(predicted_class, score)
             draw = ImageDraw.Draw(image)
-            label_size = draw.textsize(label, font)
+            # label_size = draw.textsize(label, font)
+            _,_,width,height = draw.textbbox((0,0),text=label, font=font)
             label = label.encode('utf-8')
             print(label, top, left, bottom, right)
             
-            if top - label_size[1] >= 0:
-                text_origin = np.array([left, top - label_size[1]])
+            if top - height >= 0:
+                text_origin = np.array([left, top - height])
             else:
                 text_origin = np.array([left, top + 1])
 
             for i in range(thickness):
                 draw.rectangle([left + i, top + i, right - i, bottom - i], outline=self.colors[c])
-            draw.rectangle([tuple(text_origin), tuple(text_origin + label_size)], fill=self.colors[c])
+            draw.rectangle([tuple(text_origin), tuple(text_origin + (width,height))], fill=self.colors[c])
             draw.text(text_origin, str(label,'UTF-8'), fill=(0, 0, 0), font=font)
             del draw
 
