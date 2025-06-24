@@ -235,22 +235,23 @@ class YoloBody(nn.Module):
             z = self.reparameterize(mu, log_var)
             return z
         if self.training_head is False and self.is_vae is False:
-            feat1, feat2, feat3 = self.backbone.forward(x)
-            # Encode features
-            # 处理第一和第三个维度的特征
-            feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
-            feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
-            feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
+            feat1, feat2, feat3 = self.backbone.forward_ori(x)
             
-            # 融合版本
-            mu, log_var = self.encode(feat_three)
-            z = self.reparameterize(mu, log_var)
-            feat_three = self.decode(z)
+            # # Encode features
+            # # 处理第一和第三个维度的特征
+            # feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
+            # feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
+            # feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
             
-            # 还原第一和第三个维度的特征
-            feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)
-            feat1 = F.interpolate(feat1, size=(80, 80), mode='bilinear', align_corners=False) # 1*256*40*40 => 1*256*80*80
-            feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
+            # # 融合版本
+            # mu, log_var = self.encode(feat_three)
+            # z = self.reparameterize(mu, log_var)
+            # feat_three = self.decode(z)
+            
+            # # 还原第一和第三个维度的特征
+            # feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)
+            # feat1 = F.interpolate(feat1, size=(80, 80), mode='bilinear', align_corners=False) # 1*256*40*40 => 1*256*80*80
+            # feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
         
         if self.training_head is False and self.is_vae is True:
             feat_three = self.decode(x)

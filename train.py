@@ -61,7 +61,7 @@ if __name__ == "__main__":
     #       设置            distributed = True
     #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 --master_port=12345 train.py
     #---------------------------------------------------------------------#
-    distributed     = True
+    distributed     = False
     #---------------------------------------------------------------------#
     #   sync_bn     是否使用sync_bn，DDP模式多卡可用
     #---------------------------------------------------------------------#
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'SNN_logs/one_VAE_interpolate/best_epoch_weights.pth' # 'weights/yolov8_l.pth'
+    model_path      = 'weights/first10_weights.pth' # 'SNN_logs/first11class/best_epoch_weights.pth'
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     Init_Epoch          = 0
     Freeze_Epoch        = 100
-    Freeze_batch_size   = 66
+    Freeze_batch_size   = 64
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 400
-    Unfreeze_batch_size = 66
+    Unfreeze_batch_size = 64
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -319,6 +319,42 @@ if __name__ == "__main__":
                 no_load_key.append(k)
         model_dict.update(temp_dict)
         model.load_state_dict(model_dict)
+
+
+
+
+
+
+
+        
+        # replace ghostnet and record the parameters that need to be updated
+        from utils.add_param import add_parameters, add_ghostnet
+        from nets.ReGhos_Block import *
+        
+        layer_types = ['conv3_for_upsample1', 'conv3_for_upsample2', 'down_sample1',
+                      'conv3_for_downsample1', 'down_sample2',  'conv3_for_downsample2', 'cv2', 'cv3', 'dfl']
+        reg_params = []
+        for name in layer_types:
+            module = getattr(model, name)
+            if module is not None:
+                reg_params += list(module.parameters())
+            else:
+                print(f"Warning: Layer {name} not found in model.")
+        
+        reg_params = add_parameters(reg_params, model, nn.BatchNorm2d)
+        
+        for k, v in model.named_modules():
+            if "backbone" in k:
+                model = add_ghostnet(model)
+
+        reg_params = add_parameters(reg_params, model, ReGhos_Block)
+
+
+
+
+
+
+
         #------------------------------------------------------#
         #   显示没有匹配上的Key
         #------------------------------------------------------#
@@ -450,18 +486,20 @@ if __name__ == "__main__":
         #---------------------------------------#
         pg0, pg1, pg2 = [], [], []  
         for k, v in model.named_modules():
-            if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
-                pg2.append(v.bias)    
+            
             if isinstance(v, nn.BatchNorm2d) or "bn" in k:
                 pg0.append(v.weight)    
             elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
-                pg1.append(v.weight)   
+                pg1.append(v.weight)
+            elif hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
+                pg2.append(v.bias)  
+
         optimizer = {
-            'adam'  : optim.Adam(pg0, Init_lr_fit, betas = (momentum, 0.999)),
-            'sgd'   : optim.SGD(pg0, Init_lr_fit, momentum = momentum, nesterov=True)
+            'adam'  : optim.Adam(reg_params, Init_lr_fit, betas = (momentum, 0.999)),
+            'sgd'   : optim.SGD(reg_params, Init_lr_fit, momentum = momentum, nesterov=True)
         }[optimizer_type]
-        optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
-        optimizer.add_param_group({"params": pg2})
+        # optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
+        # optimizer.add_param_group({"params": pg2})
 
         #---------------------------------------#
         #   获得学习率下降的公式
