@@ -26,7 +26,7 @@ class YOLO(object):
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
         #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
         #--------------------------------------------------------------------------#
-        "model_path"        : 'SNN_logs/loss_2025_06_23_15_05_22/best_epoch_weights.pth',  # 'weights/first10_weights.pth', 
+        "model_path"        : 'SNN_logs/diningtable-all/best_epoch_weights.pth',  # 'weights/first10_weights.pth', 
         "classes_path"      : 'model_data/voc_classes.txt',
         #---------------------------------------------------------------------#
         #   输入图片的大小，必须为32的倍数。
@@ -116,17 +116,17 @@ class YOLO(object):
                         }
         
         # 推理——复制参数给 "original_block."
-        new_state_dict = rename_dict.copy()
+        new_state_dict = pretrained_dict.copy()
 
-        # for k, v in rename_dict.items():
-        #     if "original_block." in k:
-        #         new_key = k.replace("original_block.", "")
-        #         if new_key not in new_state_dict:
-        #             new_state_dict[new_key] = v
+        for k, v in pretrained_dict.items():
+            if "original_block." in k:
+                new_key = k.replace("original_block.", "")
+                if new_key not in new_state_dict:
+                    new_state_dict[new_key] = v
         
-        # self.net = add_ghostnet(self.net)
+        self.net = add_ghostnet(self.net)
     
-        self.net.load_state_dict(rename_dict)
+        self.net.load_state_dict(new_state_dict)
 
         
         

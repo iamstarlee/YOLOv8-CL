@@ -9,7 +9,8 @@ import numpy as np
 from PIL import Image
 
 from yolo import YOLO
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 if __name__ == "__main__":
     yolo = YOLO()
     #----------------------------------------------------------------------------------------------------------#

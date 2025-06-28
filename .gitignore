@@ -10,3 +10,4 @@ nets/__pycache__
 targets
 tools/
 imgs/
+eval_logs/

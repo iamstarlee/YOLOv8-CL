@@ -22,7 +22,10 @@ from utils.utils import (download_weights, get_classes, seed_everything,
                          show_config, worker_init_fn)
 from utils.utils_fit import fit_one_epoch
 from get_the_classes import get_target_classes, load_data_with_specific_classes
+from utils.add_param import add_parameters, add_ghostnet
+from nets.ReGhos_Block import *
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "5,6"
 '''
 训练自己的目标检测模型一定需要注意以下几点：
 1、训练前仔细检查自己的格式是否满足要求，该库要求数据集格式为VOC格式，需要准备好的内容有输入图片和标签
@@ -65,7 +68,7 @@ if __name__ == "__main__":
     #---------------------------------------------------------------------#
     #   sync_bn     是否使用sync_bn，DDP模式多卡可用
     #---------------------------------------------------------------------#
-    sync_bn         = True
+    sync_bn         = False
     #---------------------------------------------------------------------#
     #   fp16        是否使用混合精度训练
     #               可减少约一半的显存、需要pytorch1.7.1以上
@@ -95,7 +98,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'weights/first10_weights.pth' # 'SNN_logs/first11class/best_epoch_weights.pth'
+    model_path      = 'weights/yolov8_n.pth' # 'weights/first10_weights.pth' # 'SNN_logs/first11class/best_epoch_weights.pth'
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -108,7 +111,7 @@ if __name__ == "__main__":
     #                   l : 对应yolov8_l
     #                   x : 对应yolov8_x
     #------------------------------------------------------#
-    phi             = 'l'
+    phi             = 'n'
     #----------------------------------------------------------------------------------------------------------------------------#
     #   pretrained      是否使用主干网络的预训练权重，此处使用的是主干的权重，因此是在模型构建的时候进行加载的。
     #                   如果设置了model_path，则主干的权值无需加载，pretrained的值无意义。
@@ -175,7 +178,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     Init_Epoch          = 0
     Freeze_Epoch        = 100
-    Freeze_batch_size   = 64
+    Freeze_batch_size   = 16
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -185,8 +188,8 @@ if __name__ == "__main__":
     #                           Adam可以使用相对较小的UnFreeze_Epoch
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
-    UnFreeze_Epoch      = 400
-    Unfreeze_batch_size = 64
+    UnFreeze_Epoch      = 100
+    Unfreeze_batch_size = 16
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -328,24 +331,14 @@ if __name__ == "__main__":
 
         
         # replace ghostnet and record the parameters that need to be updated
-        from utils.add_param import add_parameters, add_ghostnet
-        from nets.ReGhos_Block import *
-        
-        layer_types = ['conv3_for_upsample1', 'conv3_for_upsample2', 'down_sample1',
-                      'conv3_for_downsample1', 'down_sample2',  'conv3_for_downsample2', 'cv2', 'cv3', 'dfl']
         reg_params = []
-        for name in layer_types:
-            module = getattr(model, name)
-            if module is not None:
-                reg_params += list(module.parameters())
-            else:
-                print(f"Warning: Layer {name} not found in model.")
-        
+
+        for param in model.parameters():
+            param.requires_grad = False
+
         reg_params = add_parameters(reg_params, model, nn.BatchNorm2d)
         
-        for k, v in model.named_modules():
-            if "backbone" in k:
-                model = add_ghostnet(model)
+        model = add_ghostnet(model)
 
         reg_params = add_parameters(reg_params, model, ReGhos_Block)
 
@@ -486,7 +479,6 @@ if __name__ == "__main__":
         #---------------------------------------#
         pg0, pg1, pg2 = [], [], []  
         for k, v in model.named_modules():
-            
             if isinstance(v, nn.BatchNorm2d) or "bn" in k:
                 pg0.append(v.weight)    
             elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
@@ -495,12 +487,12 @@ if __name__ == "__main__":
                 pg2.append(v.bias)  
 
         optimizer = {
-            'adam'  : optim.Adam(reg_params, Init_lr_fit, betas = (momentum, 0.999)),
-            'sgd'   : optim.SGD(reg_params, Init_lr_fit, momentum = momentum, nesterov=True)
+            'adam'  : optim.Adam(pg0, Init_lr_fit, betas = (momentum, 0.999)),
+            'sgd'   : optim.SGD(pg0, Init_lr_fit, momentum = momentum, nesterov=True)
         }[optimizer_type]
-        # optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
-        # optimizer.add_param_group({"params": pg2})
-
+        optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
+        optimizer.add_param_group({"params": pg2})
+   
         #---------------------------------------#
         #   获得学习率下降的公式
         #---------------------------------------#
