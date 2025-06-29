@@ -11,3 +11,4 @@ targets
 tools/
 imgs/
 eval_logs/
+model_data/
