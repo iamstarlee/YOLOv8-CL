@@ -11,4 +11,4 @@ targets
 tools/
 imgs/
 eval_logs/
-model_data/
+model_data/voc_classes.txt
