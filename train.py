@@ -24,8 +24,8 @@ from utils.utils_fit import fit_one_epoch
 from get_the_classes import get_target_classes, load_data_with_specific_classes
 from utils.add_param import add_parameters, add_ghostnet
 from nets.ReGhos_Block import *
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "5,6"
+import time
+os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6"
 '''
 训练自己的目标检测模型一定需要注意以下几点：
 1、训练前仔细检查自己的格式是否满足要求，该库要求数据集格式为VOC格式，需要准备好的内容有输入图片和标签
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'weights/yolov8_n.pth' # 'weights/first10_weights.pth' # 'SNN_logs/first11class/best_epoch_weights.pth'
+    model_path      = 'weights/first10_weights.pth'  # 'SNN_logs/first11class/best_epoch_weights.pth' 
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     #                   l : 对应yolov8_l
     #                   x : 对应yolov8_x
     #------------------------------------------------------#
-    phi             = 'n'
+    phi             = 'l'
     #----------------------------------------------------------------------------------------------------------------------------#
     #   pretrained      是否使用主干网络的预训练权重，此处使用的是主干的权重，因此是在模型构建的时候进行加载的。
     #                   如果设置了model_path，则主干的权值无需加载，pretrained的值无意义。
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     Init_Epoch          = 0
     Freeze_Epoch        = 100
-    Freeze_batch_size   = 16
+    Freeze_batch_size   = 24
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 100
-    Unfreeze_batch_size = 16
+    Unfreeze_batch_size = 24
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -330,17 +330,17 @@ if __name__ == "__main__":
 
 
         
-        # replace ghostnet and record the parameters that need to be updated
-        reg_params = []
+        # # replace ghostnet and record the parameters that need to be updated
+        # reg_params = []
 
-        for param in model.parameters():
-            param.requires_grad = False
+        # for param in model.parameters():
+        #     param.requires_grad = False
 
-        reg_params = add_parameters(reg_params, model, nn.BatchNorm2d)
+        # reg_params = add_parameters(reg_params, model, nn.BatchNorm2d)
         
-        model = add_ghostnet(model)
+        # model = add_ghostnet(model)
 
-        reg_params = add_parameters(reg_params, model, ReGhos_Block)
+        # reg_params = add_parameters(reg_params, model, ReGhos_Block)
 
 
 
@@ -547,6 +547,7 @@ if __name__ == "__main__":
         #---------------------------------------#
         #   开始模型训练
         #---------------------------------------#
+        start_time = time.time()
         for epoch in range(Init_Epoch, UnFreeze_Epoch):
             #---------------------------------------#
             #   如果模型有冻结学习部分
@@ -604,6 +605,7 @@ if __name__ == "__main__":
 
             if distributed:
                 dist.barrier()
-
+        end_time = time.time()
+        print(f"Duration is {(end_time - start_time)/600:.2f} min.")
         if local_rank == 0:
             loss_history.writer.close()
