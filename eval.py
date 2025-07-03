@@ -182,7 +182,7 @@ def main():
     train_annotation_path   = '2007_train.txt'
     val_annotation_path     = '2007_val.txt'
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = 'SNN_logs/diningtable/best_epoch_weights.pth' # 'weights/first10_weights.pth' 
+    model_path = 'SNN_logs/first5-large/best_epoch_weights.pth' # 'weights/first10_weights.pth' 
 
     time_str        = datetime.datetime.strftime(datetime.datetime.now(),'%Y_%m_%d_%H_%M_%S')
     log_dir         = os.path.join('eval_logs', "loss_" + str(time_str))
@@ -191,7 +191,7 @@ def main():
 
 
     # 创建模型
-    model = YoloBody((640, 640), num_classes, 'l', False)
+    model = YoloBody((640, 640), num_classes, 'n', False)
 
     pretrained_dict = torch.load(model_path, map_location = device)
     # add prefix 'backbone.' to pretrained_dict
@@ -200,16 +200,22 @@ def main():
     # 推理——复制参数给 "original_block."
     new_state_dict = pretrained_dict.copy()
 
-    for k, v in pretrained_dict.items():
-        if "original_block." in k:
-            new_key = k.replace("original_block.", "")
-            if new_key not in new_state_dict:
-                new_state_dict[new_key] = v
+    # for k, v in pretrained_dict.items():
+    #     if "original_block." in k:
+    #         new_key = k.replace("original_block.", "")
+    #         if new_key not in new_state_dict:
+    #             new_state_dict[new_key] = v
     
-    model.backbone = add_ghostnet(model.backbone)
+    # for param in model.parameters():
+    #     param.requires_grad = False
+    # model.backbone = add_ghostnet(model.backbone)
+    
+    
+    all_params = sum(p.numel() for p in model.parameters())
+    train_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"所有参数为 {all_params* 4 / (1024 * 1024):.2f}MB, 其中可训练参数为 {train_params* 4 / (1024 * 1024):.2f}MB")
+    
     model.load_state_dict(new_state_dict)
-    print(f"model is {model}")
-
 
 
     _, val_lines, _, num_val = load_data_with_specific_classes(train_annotation_path, val_annotation_path, target_classes)
