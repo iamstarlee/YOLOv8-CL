@@ -38,11 +38,7 @@ def fit_one_epoch(model_train, model, ema, yolo_loss, loss_history, eval_callbac
             loss_value = yolo_loss(outputs, bboxes)
 
             
-            # print(f"x[0] is {outputs[0].shape}")
-            # print(f"x[1] is {outputs[1].shape}")
-            # print(f"x[2] is {[x.shape for x in outputs[2]]}")
-            # print(f"x[3] is {outputs[3].shape}")
-            # print(f"x[4] is {outputs[4].shape}")
+            
 
             #----------------------#
             #   反向传播
@@ -174,23 +170,24 @@ def fit_one_epoch_KL(model_train, stu_model, teacher_model, ema, yolo_loss, loss
             #----------------------#
             # dbox, cls, origin_cls, anchors, strides 
             outputs = model_train(images)
-            stu_loss = yolo_loss(outputs, bboxes)
+            # print(f"outputs[0] is {outputs[0].shape}") # dbox torch.Size([1, 4, 8400])
+            # print(f"outputs[1] is {outputs[1].shape}") # cls torch.Size([1, 10, 8400])
+            # print(f"outputs[2] is {[x.shape for x in outputs[2]]}") # x [torch.Size([1, 74, 80, 80]), torch.Size([1, 74, 40, 40]), torch.Size([1, 74, 20, 20])]
+            # print(f"outputs[3] is {outputs[3].shape}") # anchor torch.Size([2, 8400])
+            # print(f"outputs[4] is {outputs[4].shape}") # strides torch.Size([1, 8400])
+
+            
 
             with torch.no_grad():
                 outputs_teacher = teacher_model(images)
-                # KL Divergence Loss
+                
+            hard_loss, soft_loss = yolo_loss(outputs, outputs_teacher, bboxes)
             
-            # for x in outputs:
-            #     if type(x) is not list:
-            #         x /= temp
-            # for x in outputs_teacher:
-            #     if type(x) is not list:
-            #         x /= temp
             
-            distill_loss0 = soft_loss(
-                F.softmax(outputs[1] / temp, dim = -1) ,
-                F.softmax(outputs_teacher[1] / temp, dim = -1)
-            )
+            # distill_loss0 = soft_loss(
+            #     F.softmax(outputs[1] / temp, dim = -1) ,
+            #     F.softmax(outputs_teacher[1] / temp, dim = -1)
+            # )
             # distill_loss1 = soft_loss(
             #     F.softmax(outputs[1] / temp, dim = -1) ,
             #     F.softmax(outputs_teacher[1] / temp, dim = -1)
@@ -203,10 +200,10 @@ def fit_one_epoch_KL(model_train, stu_model, teacher_model, ema, yolo_loss, loss
             #     F.softmax(outputs[4], dim = -1) ,
             #     F.softmax(outputs_teacher[4], dim = -1)
             # )
-            print(f"output is {distill_loss0}")
+            
 
             # print(f"distill_loss0 is {distill_loss0}, and distill_loss1 is {distill_loss1}")
-            loss_value = alpha * stu_loss + (1 - alpha) * (distill_loss0)
+            loss_value = alpha * hard_loss + (1 - alpha) * soft_loss
 
             #----------------------#
             #   反向传播

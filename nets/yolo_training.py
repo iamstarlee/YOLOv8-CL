@@ -366,8 +366,9 @@ def xywh2xyxy(x):
 
 
 
-class Loss_Head:
-    def __init__(self, model): 
+class Loss_KL:
+    def __init__(self, model, model_tea): 
+        #--------------students--------------#
         self.bce    = nn.BCEWithLogitsLoss(reduction='none')
         self.stride = model.stride  # model strides
         self.nc     = model.num_classes  # number of classes
@@ -384,6 +385,25 @@ class Loss_Head:
                                             roll_out_thr=roll_out_thr)
         self.bbox_loss  = BboxLoss(model.reg_max - 1, use_dfl=self.use_dfl)
         self.proj       = torch.arange(model.reg_max, dtype=torch.float)
+
+
+        #--------------teacher--------------#
+        self.soft_loss = nn.KLDivLoss(reduction='batchmean')
+        self.alpha = 0.3
+        self.temp = 7
+        self.stride_tea = model_tea.stride  # model strides
+        self.nc_tea = model_tea.num_classes  # number of classes
+        self.no_tea = model_tea.no
+        self.reg_max_tea = model_tea.reg_max
+        self.use_dfl_tea = model_tea.reg_max > 1
+        self.assigner_tea = TaskAlignedAssigner(topk=10,
+                                                num_classes=self.nc_tea,
+                                                alpha=0.5,
+                                                beta=6.0,
+                                                roll_out_thr=roll_out_thr)
+        self.bbox_loss_tea = BboxLoss(model_tea.reg_max - 1, use_dfl=self.use_dfl_tea)
+        self.proj_tea = torch.arange(model_tea.reg_max, dtype=torch.float)
+
 
     def preprocess(self, targets, batch_size, scale_tensor):
         if targets.shape[0] == 0:
@@ -414,7 +434,8 @@ class Loss_Head:
         # 然后解码获得预测框
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
-    def __call__(self, preds, batch):
+    def __call__(self, preds, preds_tea, batch):
+        #------------- Students-------------#
         # 获得使用的device
         device  = preds[1].device
         # box, cls, dfl三部分的损失
@@ -435,7 +456,35 @@ class Loss_Head:
         imgsz       = torch.tensor(feats[0].shape[2:], device=device, dtype=dtype) * self.stride[0]  
         # 获得anchors点和步长对应的tensor
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split((self.reg_max * 4, self.nc), 1)
 
+
+
+
+
+        #------------- Teacher-------------#
+        # 获得使用的device
+        device  = preds[1].device
+        # box, cls, dfl三部分的损失
+        loss_tea    = torch.zeros(3, device=device) 
+        # 获得特征，并进行划分
+        feats_tea   = preds_tea[2] if isinstance(preds_tea, tuple) else preds_tea 
+        pred_distri_tea, pred_scores_tea = torch.cat([xi.view(feats_tea[0].shape[0], self.no_tea, -1) for xi in feats_tea], 2).split((self.reg_max_tea * 4, self.nc_tea), 1)
+        
+        pred_scores_tea = pred_scores_tea.permute(0, 2, 1).contiguous()
+        pred_distri_tea = pred_distri_tea.permute(0, 2, 1).contiguous()
+
+        # 获得batch size与dtype
+        dtype_tea       = pred_scores_tea.dtype
+        batch_size_tea  = pred_scores_tea.shape[0]
+
+        # 获得anchors点和步长对应的tensor
+        anchor_points_tea, stride_tensor_tea = make_anchors(feats_tea, self.stride_tea, 0.5)
+        pred_distri_tea, pred_scores_tea = torch.cat([xi.view(feats_tea[0].shape[0], self.no_tea, -1) for xi in feats_tea], 2).split((self.reg_max_tea * 4, self.nc_tea), 1)
+
+
+
+        #------------- Hard Loss-------------#
         # 把一个batch中的东西弄一个矩阵
         # 0为属于第几个图片
         # 1为种类
@@ -479,7 +528,27 @@ class Loss_Head:
         loss[0] *= 7.5  # box gain
         loss[1] *= 0.5  # cls gain
         loss[2] *= 1.5  # dfl gain
-        return loss.sum() # loss(box, cls, dfl) # * batch_size
+
+
+        #------------- Soft Loss-------------#
+        pred_bboxes_tea = self.bbox_decode(anchor_points_tea, pred_distri_tea)  # xyxy, (b, h*w, 4)
+        # 对教师预测框与学生真实框进行分配
+        _, target_bboxes_tea, target_scores_tea, fg_mask_tea, _ = self.assigner_tea(
+            pred_scores_tea.detach().sigmoid(), (pred_bboxes_tea.detach() * stride_tensor_tea).type(gt_bboxes.dtype),
+            anchor_points_tea * stride_tensor_tea, gt_labels, gt_bboxes, mask_gt
+        )
+        loss[1] = self.bce(pred_scores_tea, target_scores_tea.to(dtype_tea)).sum() / target_scores_sum
+        if fg_mask_tea.sum():
+            loss_tea[0], loss_tea[2] = self.bbox_loss_tea(pred_distri_tea, pred_bboxes_tea, anchor_points_tea, target_bboxes_tea, target_scores_tea,
+                                                          target_scores_sum, fg_mask_tea)
+        loss_tea[0] *= 7.5  # box gain
+        loss_tea[1] *= 0.5  # cls gain  
+        loss_tea[2] *= 1.5
+
+        distill_loss_cls = self.soft_loss(F.softmax(pred_scores / self.temp, dim=1),
+                                      F.softmax(pred_scores_tea / self.temp, dim=1)) 
+        print(f"distill_loss_cls: {distill_loss_cls.item()}")
+        return loss.sum(), distill_loss_cls  # loss(box, cls, dfl) # * batch_size
 
 
 
@@ -599,6 +668,9 @@ class Loss:
         loss[0] *= 7.5  # box gain
         loss[1] *= 0.5  # cls gain
         loss[2] *= 1.5  # dfl gain
+        # print(f"pred_distri is {pred_distri.shape}, pred_bboxes is {pred_bboxes.shape}, anchor_points is {anchor_points.shape}")
+        # print(f"target_bboxes is {target_bboxes.shape}") # torch.Size([12, 8400, 4])
+        # print(f"pred_bboxes is {pred_bboxes.shape} ") # torch.Size([12, 8400, 4])
         return loss.sum() # loss(box, cls, dfl) # * batch_size
 
 def is_parallel(model):

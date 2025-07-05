@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from nets.yolo import YoloBody
-from nets.yolo_training import (Loss, ModelEMA, get_lr_scheduler,
+from nets.yolo_training import (Loss_KL, ModelEMA, get_lr_scheduler,
                                 set_optimizer_lr, weights_init)
 from utils.callbacks import EvalCallback, LossHistory
 from utils.dataloader import YoloDataset, yolo_dataset_collate
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = ''  # 'SNN_logs/first11class/best_epoch_weights.pth' 
+    model_path      = ''
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     #                   l : 对应yolov8_l
     #                   x : 对应yolov8_x
     #------------------------------------------------------#
-    phi             = 'n'
+    phi             = 'l'
     #----------------------------------------------------------------------------------------------------------------------------#
     #   pretrained      是否使用主干网络的预训练权重，此处使用的是主干的权重，因此是在模型构建的时候进行加载的。
     #                   如果设置了model_path，则主干的权值无需加载，pretrained的值无意义。
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------#
     Init_Epoch          = 0
     Freeze_Epoch        = 100
-    Freeze_batch_size   = 1
+    Freeze_batch_size   = 8
     #------------------------------------------------------------------#
     #   解冻阶段训练参数
     #   此时模型的主干不被冻结了，特征提取网络会发生改变
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 100
-    Unfreeze_batch_size = 1
+    Unfreeze_batch_size = 8
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -291,13 +291,21 @@ if __name__ == "__main__":
 
 
 
+
+
+
+
+
+
+
+
+
+
+
     #------------------------------------------------------#
     #   创建学生模型
     #------------------------------------------------------#
     stu_model = YoloBody(input_shape, num_classes, 'n', pretrained=False)
-
-
-
 
     #------------------------------------------------------#
     #   创建老师模型
@@ -305,7 +313,7 @@ if __name__ == "__main__":
     tea_model = YoloBody(input_shape, num_classes, 'l', pretrained=False)
     tea_model_dict      = tea_model.state_dict()
 
-    tea_model_path = 'weights/first5-large.pth'  
+    tea_model_path = 'weights/first10-large.pth'  
     tea_pretrained_dict = torch.load(tea_model_path, map_location = device)
     # add prefix 'backbone.' to pretrained_dict
     renamed_dict = {
@@ -324,15 +332,22 @@ if __name__ == "__main__":
     tea_model_dict.update(temp_dict)
     tea_model.load_state_dict(tea_model_dict)
     tea_model.eval().cuda()
-    temp = 7
+
 
 
     
 
+
+
+
+
+
+
+
     #----------------------#
     #   获得损失函数
     #----------------------#
-    yolo_loss = Loss(stu_model)
+    yolo_loss = Loss_KL(stu_model, tea_model)
     #----------------------#
     #   记录Loss
     #----------------------#
