@@ -97,7 +97,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = 'SNN_logs/loss_2025_07_14_15_49_03/best_epoch_weights.pth' # 'weights/first10-large.pth' 
+    model_path      = 'weights/first10-large.pth' 
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -394,7 +394,7 @@ if __name__ == "__main__":
             #   多卡并行运行
             #----------------------------#
             model_train = model_train.cuda(local_rank)
-            model_train = torch.nn.parallel.DistributedDataParallel(model_train, device_ids=[local_rank], find_unused_parameters=True)
+            model_train = torch.nn.parallel.DistributedDataParallel(model_train, device_ids=[local_rank])
         else:
             model_train = torch.nn.DataParallel(model)
             cudnn.benchmark = True

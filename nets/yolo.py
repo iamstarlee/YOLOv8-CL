@@ -120,7 +120,7 @@ class YoloBody(nn.Module):
 
         #------------------------变分自编码器网络------------------------#
         
-        self.latent_dim = 25600
+        self.latent_dim = 6400
         self.beta = 4
         self.gamma = 1000.
         self.loss_type = 'B'
@@ -263,7 +263,7 @@ class YoloBody(nn.Module):
             # 融合版本
             mu, log_var = self.encode(feat_three)
             z = self.reparameterize(mu, log_var)
-            return z
+
 
 
             feat_three = self.decode(z)

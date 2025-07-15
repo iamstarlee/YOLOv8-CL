@@ -202,6 +202,13 @@ def main():
         
     # 推理——复制参数给 "original_block."
     new_state_dict = pretrained_dict.copy()
+    
+    # 计算模型复杂度
+    from ptflops import get_model_complexity_info
+    with torch.no_grad():
+        macs, params = get_model_complexity_info(model, (3, 640, 640), as_strings=True,
+                                                print_per_layer_stat=False, verbose=False)
+    print(f"FLOPs: {macs} / Params: {params}")
 
     # for k, v in pretrained_dict.items():
     #     if "original_block." in k:
