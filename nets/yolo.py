@@ -78,7 +78,6 @@ class YoloBody(nn.Module):
         #   512, 40, 40
         #   1024 * deep_mul, 20, 20
         #---------------------------------------------------#
-        # self.backbone   = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
         self.backbone = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
 
         #------------------------加强特征提取网络------------------------# 
@@ -117,94 +116,94 @@ class YoloBody(nn.Module):
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 
         self.training_head = False
-        self.is_vae = False
+        self.is_vae = True
 
-        # #------------------------变分自编码器网络------------------------#
+        #------------------------变分自编码器网络------------------------#
         
-        # self.latent_dim = 25600
-        # self.beta = 4
-        # self.gamma = 1000.
-        # self.loss_type = 'B'
-        # self.C_max = torch.Tensor([25])
-        # self.C_stop_iter = 1e5
+        self.latent_dim = 25600
+        self.beta = 4
+        self.gamma = 1000.
+        self.loss_type = 'B'
+        self.C_max = torch.Tensor([25])
+        self.C_stop_iter = 1e5
 
-        # self.hidden_dims = [32, 64, 128, 256, 512] 
+        self.hidden_dims = [32, 64, 128, 256, 512] 
         
-        # self.in_channels = 1280
-        # self.outchannels = 1280
+        self.in_channels = 1280
+        self.outchannels = 1280
 
-        # modules = []
-        # hidden_dims = [32, 64, 128, 256, 512]
+        modules = []
+        hidden_dims = [32, 64, 128, 256, 512]
 
-        # # Encoder
-        # in_channels = self.in_channels
-        # for h_dim in hidden_dims:
-        #     modules.append(
-        #         nn.Sequential(
-        #             nn.Conv2d(in_channels, out_channels=h_dim,
-        #                       kernel_size= 3, stride= 2, padding  = 1),
-        #             nn.BatchNorm2d(h_dim),
-        #             nn.LeakyReLU())
-        #     )
-        #     in_channels = h_dim
+        # Encoder
+        in_channels = self.in_channels
+        for h_dim in hidden_dims:
+            modules.append(
+                nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels=h_dim,
+                              kernel_size= 3, stride= 2, padding  = 1),
+                    nn.BatchNorm2d(h_dim),
+                    nn.LeakyReLU())
+            )
+            in_channels = h_dim
 
-        # self.encoder = nn.Sequential(*modules)
-        # self.fc_mu = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
-        # self.fc_var = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
+        self.encoder = nn.Sequential(*modules)
+        self.fc_mu = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1]*4, self.latent_dim)
 
-        # # Decoder
-        # modules = []
+        # Decoder
+        modules = []
 
-        # self.decoder_input = nn.Linear(self.latent_dim, hidden_dims[-1] * 4)
+        self.decoder_input = nn.Linear(self.latent_dim, hidden_dims[-1] * 4)
 
-        # hidden_dims.reverse()
+        hidden_dims.reverse()
 
-        # for i in range(len(hidden_dims) - 1):
-        #     modules.append(
-        #         nn.Sequential(
-        #             nn.ConvTranspose2d(hidden_dims[i],
-        #                                hidden_dims[i + 1],
-        #                                kernel_size=3,
-        #                                stride = 2,
-        #                                padding=1,
-        #                                output_padding=1),
-        #             nn.BatchNorm2d(hidden_dims[i + 1]),
-        #             nn.LeakyReLU())
-        #     )
+        for i in range(len(hidden_dims) - 1):
+            modules.append(
+                nn.Sequential(
+                    nn.ConvTranspose2d(hidden_dims[i],
+                                       hidden_dims[i + 1],
+                                       kernel_size=3,
+                                       stride = 2,
+                                       padding=1,
+                                       output_padding=1),
+                    nn.BatchNorm2d(hidden_dims[i + 1]),
+                    nn.LeakyReLU())
+            )
 
-        # self.decoder = nn.Sequential(*modules)
-        # self.size = (40,40)
-        # self.view = (-1, 512, 2, 2)
+        self.decoder = nn.Sequential(*modules)
+        self.size = (40,40)
+        self.view = (-1, 512, 2, 2)
 
 
-        # self.final_layer = nn.Sequential(
-        #     nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.BatchNorm2d(hidden_dims[-1]),
-        #     nn.LeakyReLU(),
-        #     nn.Conv2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, padding=1),
-        #     nn.LeakyReLU(),
-        #     nn.Conv2d(hidden_dims[-1], out_channels=self.outchannels, kernel_size=3, padding=1), # 512可用
-        #     # nn.Conv2d(hidden_dims[-1], out_channels=256, kernel_size=3, padding=1), # 256可用
-        #     nn.Tanh(),
-        #     nn.AdaptiveAvgPool2d(self.size)  # 自适应调整到 [512, 20, 20]
-        #     # nn.AdaptiveAvgPool2d((40, 40))
-        #     # nn.AdaptiveAvgPool2d((80, 80))
-        # )
+        self.final_layer = nn.Sequential(
+            nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(hidden_dims[-1]),
+            nn.LeakyReLU(),
+            nn.Conv2d(hidden_dims[-1], hidden_dims[-1], kernel_size=3, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(hidden_dims[-1], out_channels=self.outchannels, kernel_size=3, padding=1), # 512可用
+            # nn.Conv2d(hidden_dims[-1], out_channels=256, kernel_size=3, padding=1), # 256可用
+            nn.Tanh(),
+            nn.AdaptiveAvgPool2d(self.size)  # 自适应调整到 [512, 20, 20]
+            # nn.AdaptiveAvgPool2d((40, 40))
+            # nn.AdaptiveAvgPool2d((80, 80))
+        )
 
-    # def encode(self, input:Tensor) -> List[Tensor]:
-    #     result = self.encoder(input)
-    #     result = torch.flatten(result, start_dim=1)
-    #     mu = self.fc_mu(result)
-    #     log_var = self.fc_var(result)
-    #     return [mu, log_var]
+    def encode(self, input:Tensor) -> List[Tensor]:
+        result = self.encoder(input)
+        result = torch.flatten(result, start_dim=1)
+        mu = self.fc_mu(result)
+        log_var = self.fc_var(result)
+        return [mu, log_var]
     
-    # def decode(self, z: Tensor) -> Tensor:
-    #     result = self.decoder_input(z)
-    #     result = result.view(self.view) # 20,40可用
-    #     # result = result.view(-1, 576, 2, 2) # 80可用
-    #     result = self.decoder(result)
-    #     result = self.final_layer(result)
-    #     return result
+    def decode(self, z: Tensor) -> Tensor:
+        result = self.decoder_input(z)
+        result = result.view(self.view) # 20,40可用
+        # result = result.view(-1, 576, 2, 2) # 80可用
+        result = self.decoder(result)
+        result = self.final_layer(result)
+        return result
     
     def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
         std = torch.exp(0.5 * logvar)
@@ -254,7 +253,20 @@ class YoloBody(nn.Module):
             # feat3 = F.interpolate(feat3, size=(20, 20), mode='bilinear', align_corners=False) # 1*512*40*40 => 1*512*20*20
         
         if self.training_head is False and self.is_vae is True:
-            feat_three = self.decode(x)
+            feat1, feat2, feat3 = self.backbone.forward_ori(x)
+            
+            # 处理第一和第三个维度的特征
+            feat1 = F.interpolate(feat1, size=(40, 40), mode='bilinear', align_corners=False) # 1*256*80*80 => 1*256*40*40
+            feat3 = F.interpolate(feat3, size=(40, 40), mode='bilinear', align_corners=False) # 1*512*20*20 => 1*512*40*40
+            feat_three = torch.cat([feat1, feat2, feat3], 1) # 1*1280*40*40
+            
+            # 融合版本
+            mu, log_var = self.encode(feat_three)
+            z = self.reparameterize(mu, log_var)
+            return z
+
+
+            feat_three = self.decode(z)
 
             # 还原第一和第三个维度的特征
             feat1, feat2, feat3 = feat_three.split([256, 512, 512], 1)

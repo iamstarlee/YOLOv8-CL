@@ -182,7 +182,7 @@ def main():
     train_annotation_path   = '2007_train.txt'
     val_annotation_path     = '2007_val.txt'
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = 'SNN_logs/first5-large/best_epoch_weights.pth' # 'weights/first10_weights.pth' 
+    model_path = 'SNN_logs/latent_25600_2/best_epoch_weights.pth' 
 
     time_str        = datetime.datetime.strftime(datetime.datetime.now(),'%Y_%m_%d_%H_%M_%S')
     log_dir         = os.path.join('eval_logs', "loss_" + str(time_str))
@@ -191,10 +191,13 @@ def main():
 
 
     # 创建模型
-    model = YoloBody((640, 640), num_classes, 'n', False)
+    model = YoloBody((640, 640), num_classes, 'l', False)
 
     pretrained_dict = torch.load(model_path, map_location = device)
-    # add prefix 'backbone.' to pretrained_dict
+    
+    rand_tensor = torch.randn(1, 3, 640, 640)
+    z = model(rand_tensor)
+    torch.save(z, 'compressed_z.pth')
     
         
     # 推理——复制参数给 "original_block."

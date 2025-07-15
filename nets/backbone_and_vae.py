@@ -221,7 +221,7 @@ class Backbone(nn.Module):
             return self.forward_ori(x)
 
         outputs = []
-        T = 48  # 迭代次数
+        T = 1  # 迭代次数
 
         for t in range(T):
             x_temp = self.stem(x)

@@ -63,11 +63,11 @@ if __name__ == "__main__":
     #       设置            distributed = True
     #       在终端中输入    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 --master_port=12345 train.py
     #---------------------------------------------------------------------#
-    distributed     = False
+    distributed     = True
     #---------------------------------------------------------------------#
     #   sync_bn     是否使用sync_bn，DDP模式多卡可用
     #---------------------------------------------------------------------#
-    sync_bn         = False
+    sync_bn         = True
     #---------------------------------------------------------------------#
     #   fp16        是否使用混合精度训练
     #               可减少约一半的显存、需要pytorch1.7.1以上
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     #      可以设置mosaic=True，直接随机初始化参数开始训练，但得到的效果仍然不如有预训练的情况。（像COCO这样的大数据集可以这样做）
     #   2、了解imagenet数据集，首先训练分类模型，获得网络的主干部分权值，分类模型的 主干部分 和该模型通用，基于此进行训练。
     #----------------------------------------------------------------------------------------------------------------------------#
-    model_path      = ''  # 'SNN_logs/first11class/best_epoch_weights.pth' 
+    model_path      = 'SNN_logs/loss_2025_07_14_15_49_03/best_epoch_weights.pth' # 'weights/first10-large.pth' 
     #------------------------------------------------------#
     #   input_shape     输入的shape大小，一定要是32的倍数
     #------------------------------------------------------#
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     #                   l : 对应yolov8_l
     #                   x : 对应yolov8_x
     #------------------------------------------------------#
-    phi             = 'n'
+    phi             = 'l'
     #----------------------------------------------------------------------------------------------------------------------------#
     #   pretrained      是否使用主干网络的预训练权重，此处使用的是主干的权重，因此是在模型构建的时候进行加载的。
     #                   如果设置了model_path，则主干的权值无需加载，pretrained的值无意义。
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     #   Unfreeze_batch_size     模型在解冻后的batch_size
     #------------------------------------------------------------------#
     UnFreeze_Epoch      = 100
-    Unfreeze_batch_size = 32
+    Unfreeze_batch_size = 16
     #------------------------------------------------------------------#
     #   Freeze_Train    是否进行冻结训练
     #                   默认先冻结主干训练后解冻训练。
@@ -605,6 +605,6 @@ if __name__ == "__main__":
             if distributed:
                 dist.barrier()
         end_time = time.time()
-        print(f"Duration is {(end_time - start_time)/600:.2f} min.")
+        print(f"Duration is {(end_time - start_time)/60:.2f} min.")
         if local_rank == 0:
             loss_history.writer.close()

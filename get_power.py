@@ -22,10 +22,10 @@ def get_power():
     nvmlShutdown()  # 释放资源
 
 def get_sem():
-    data = [115.74, 116.12, 109.23, 107.83, 101.21, 102.56]
-    data1 = [2.1, 1.93, 1.47, 0.21, 0.19, 0.2]
-    mean = np.mean(data)
-    sem = stats.sem(data)
+    data = [122.02, 121.93, 122.38, 122.95]
+    data1 = [13.52, 13.14, 13.70]
+    mean = np.mean(data1)
+    sem = stats.sem(data1)
     print(f"平均值：{mean:.4f}W、标准误差：{sem:.4f}W")
 
 if __name__ == "__main__":
