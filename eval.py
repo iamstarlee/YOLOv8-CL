@@ -20,6 +20,7 @@ from get_the_classes import get_target_classes, load_data_with_specific_classes
 from nets.yolo import YoloBody
 from utils.add_param import add_parameters, add_ghostnet
 from nets.ReGhos_Block import *
+import time
 
 
 class EvalCallback():
@@ -150,7 +151,7 @@ class EvalCallback():
         # try:
         #     temp_map = get_coco_map(class_names = self.class_names, path = self.map_out_path)[1]
         # except:
-        temp_map = get_map(self.MINOVERLAP, False, path = self.map_out_path)
+        temp_map = get_map(self.MINOVERLAP, False, score_threhold=0.5, path = self.map_out_path)
         self.maps.append(temp_map)
         self.epoches.append(epoch)
 
@@ -175,6 +176,47 @@ class EvalCallback():
         shutil.rmtree(self.map_out_path)
 
 
+
+
+def estimate_sram(model, input_size=(1, 3, 640, 640), dtype=torch.float32):
+    # 参数字节
+    param_size = sum(p.numel() for p in model.parameters()) * torch.finfo(dtype).bits / 8
+    print(f"param_size is {param_size / (1024 ** 2):.2f} MB")
+    # 梯度字节
+    grad_size = param_size  # 每个参数都有一个梯度
+    
+    # 模拟前向传播，计算特征图大小
+    feature_size = 0
+    def hook(module, input, output):
+        nonlocal feature_size
+        if isinstance(output, torch.Tensor):
+            feature_size += output.numel() * torch.finfo(dtype).bits / 8
+        elif isinstance(output, (list, tuple)):
+            for o in output:
+                if torch.is_tensor(o):
+                    feature_size += o.numel() * torch.finfo(dtype).bits / 8
+
+    hooks = []
+    for layer in model.modules():
+        hooks.append(layer.register_forward_hook(hook))
+    
+    dummy_input = torch.randn(*input_size)
+    model.eval()
+    with torch.no_grad():
+        model(dummy_input)
+    
+    for h in hooks:
+        h.remove()
+
+    # 优化器状态（假设 Adam，有 m 和 v 两组参数）
+    optimizer_state_size = 8 * param_size
+
+    total_sram = param_size + grad_size + feature_size + optimizer_state_size
+    return total_sram / (1024 ** 2)  # 转成 MB
+
+
+
+
 def main():
     classes_path    = 'model_data/voc_classes.txt'
     class_names, num_classes = get_classes(classes_path)
@@ -182,7 +224,7 @@ def main():
     train_annotation_path   = '2007_train.txt'
     val_annotation_path     = '2007_val.txt'
     device          = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = 'SNN_logs/latent_25600_2/best_epoch_weights.pth' 
+    model_path = 'SNN_logs/latent_12800/latent_12800.pth' # 'weights/first10-large.pth' 
 
     time_str        = datetime.datetime.strftime(datetime.datetime.now(),'%Y_%m_%d_%H_%M_%S')
     log_dir         = os.path.join('eval_logs', "loss_" + str(time_str))
@@ -192,16 +234,36 @@ def main():
 
     # 创建模型
     model = YoloBody((640, 640), num_classes, 'l', False)
+    # model = add_ghostnet(model)
 
     pretrained_dict = torch.load(model_path, map_location = device)
-    
-    rand_tensor = torch.randn(1, 3, 640, 640)
-    z = model(rand_tensor)
-    torch.save(z, 'compressed_z.pth')
+    # 加载参数
+    model_dict = model.state_dict()
+    load_key, no_load_key, temp_dict = [], [], {}
+    for k, v in pretrained_dict.items():  # 是否只加载骨干的参数，可以替换 renamed_dict
+        if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
+            temp_dict[k] = v
+            load_key.append(k)
+        else:
+            no_load_key.append(k)
+    model_dict.update(temp_dict)
+    model.load_state_dict(model_dict)
+    print("\nSuccessful Load Key:", str(load_key)[:500], "……\nSuccessful Load Key Num:", len(load_key))
+    print("\nFail To Load Key:", str(no_load_key)[:500], "……\nFail To Load Key num:", len(no_load_key))
+
+    # print(f"pretrained_dict keys: {list(pretrained_dict.keys())}")
+    # rand_tensor = torch.randn(1, 3, 640, 640)
+    # z = model(rand_tensor)
+    # torch.save(z, 'compressed_z.pth')
+    # exit(0)
     
         
     # 推理——复制参数给 "original_block."
     new_state_dict = pretrained_dict.copy()
+    
+    # # cal SRAM
+    # sram_size = estimate_sram(model)
+    # print(f"Estimated SRAM size: {sram_size:.2f} MB")
     
     # 计算模型复杂度
     from ptflops import get_model_complexity_info
@@ -209,6 +271,7 @@ def main():
         macs, params = get_model_complexity_info(model, (3, 640, 640), as_strings=True,
                                                 print_per_layer_stat=False, verbose=False)
     print(f"FLOPs: {macs} / Params: {params}")
+    # exit(0)
 
     # for k, v in pretrained_dict.items():
     #     if "original_block." in k:
@@ -221,17 +284,22 @@ def main():
     # model.backbone = add_ghostnet(model.backbone)
     
     
-    all_params = sum(p.numel() for p in model.parameters())
-    train_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"所有参数为 {all_params* 4 / (1024 * 1024):.2f}MB, 其中可训练参数为 {train_params* 4 / (1024 * 1024):.2f}MB")
+    # all_params = sum(p.numel() for p in model.parameters())
+    # train_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # print(f"所有参数为 {all_params* 4 / (1024 * 1024):.2f}MB, 其中可训练参数为 {train_params* 4 / (1024 * 1024):.2f}MB")
     
-    model.load_state_dict(new_state_dict)
+    model.load_state_dict(model_dict)
+    # print(f"model is {model}")
+    
 
-
+    start_t = time.time()
     _, val_lines, _, num_val = load_data_with_specific_classes(train_annotation_path, val_annotation_path, target_classes)
     eval_callback   = EvalCallback(model, (640,640), class_names, num_classes, val_lines, log_dir, True, \
                                     eval_flag=True)
     eval_callback.on_epoch_end(1, model.cuda().eval())
+    end_t = time.time()
+    inference_time = end_t - start_t  # 秒
+    print(f"Inference Time: {inference_time:.2f} s")
 
 if __name__ == "__main__":
     main()
