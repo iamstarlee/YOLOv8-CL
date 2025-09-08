@@ -6,4 +6,3 @@ CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_
 CUDA_VISIBLE_DEVI=0 python predict.py
 ```
 
-# bad guy is ...
